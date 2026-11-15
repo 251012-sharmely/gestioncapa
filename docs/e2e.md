@@ -135,6 +135,17 @@ pantalla antes de usarlo. No se cambia el vencimiento ni el reloj del backend.
 El nombre y la fecha de la clase varían por repetición y reintento, para que una
 clase persistida tras un fallo no cause un conflicto 409 en el siguiente intento.
 
+Al volver a entrar como administrador en `VIN-01`, se usa el ayudante `entrar`:
+comprueba el inicio del rol y su encabezado antes de abrir la asistencia de la
+clase. La cuenta antes llamada coordinadora tiene rol administrador y comienza
+en `/admin`; `/admin/clases` es la lista de clases, no su inicio de sesión.
+
+En `HU-13`, el recorrido espera el encabezado de nivel 1 del detalle del curso
+antes de comprobar su estado y permisos. Las tarjetas del listado tienen el
+mismo título en un encabezado de nivel 2: verlo no acredita que la navegación
+haya terminado. Esta distinción evita comprobar «Borrador» mientras aún se ven
+varias tarjetas, sin elegir arbitrariamente una coincidencia ni añadir pausas.
+
 En GitHub Actions, `.github/workflows/e2e.yml` instala dependencias y Chromium,
 levanta servicios desechables y ejecuta las comprobaciones. Los informes y las
 trazas se guardan como artefactos del workflow; no se publican como un sitio.
