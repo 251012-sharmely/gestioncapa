@@ -198,3 +198,93 @@ comercial y carga del procesador en despliegue, regularización histórica y gat
 manual de entrega. La terminación real, dos procesadores e intentos antiguos
 se verificaron localmente después de la primera regresión completa.
 No se marcan los checkpoints de revisión humana como si hubieran ocurrido.
+
+
+# Plan T-25: Elegir la pasarela de pagos
+
+## Estado y objetivo
+
+15/11/2026. La instrucción posterior del usuario autorizó continuar con la ejecución.
+Especificación: [SPEC.md](../SPEC.md#t-25-elegir-la-pasarela-de-pagos).
+Decisión comunicada: Izipay, efectivo presencial y transferencia bancaria.
+Se añaden estas secciones conservando los planes anteriores y sus tareas abiertas.
+Planning Poker queda al equipo. La tarea es investigación/documentación, no activar pagos.
+
+## Orden y dependencias
+
+| Tarea | Resultado verificable | Depende de | Alcance |
+| --- | --- | --- | --- |
+| T25-P01 | Fijar caso de uso, baseline y datos necesarios | — | 3 documentos de especificación/seguimiento |
+| T25-P02 | Comparar cuatro candidatas con fuentes y canales equivalentes | P01 | 1 guía nueva |
+| T25-P03 | Registrar elección y exclusión Niubiz con procedencia | P02 y confirmación del usuario | 1 ADR nuevo |
+| T25-P04 | Actualizar criterios locales de HU-54 con Izipay y medios manuales | P03 y baseline HU-53 | 1 documento nuevo |
+| T25-P05 | Enlazar guías, depurar incoherencias y verificar fuentes/seguridad | P02–P04 | Hasta 5 documentos por corrección |
+| T25-P06 | Presentar resultados, límites y mensajes Git manuales | P05 | Hasta 3 documentos de seguimiento |
+
+La investigación pública de las candidatas es independiente; la decisión precede
+a los criterios de HU-54. Las ediciones de archivos compartidos son secuenciales.
+No se requieren agentes paralelos para este alcance documental. Cada incremento se
+verifica antes de continuar; los commits los realiza manualmente el usuario.
+
+## Checkpoints
+
+1. Tras P01–P02: cuatro candidatas, fuente primaria por dato y ausencia explícita de
+   tarifa PayU. No dar por cerrada la comparación económica con un dato «por cotizar».
+2. Tras P03–P04: fuente de decisión correcta; Izipay frente a medios manuales; HU-54
+   no atribuida al tracker ni a requisitos originales no aportados.
+3. Tras P05–P06: enlaces/hashes/diff verificados, pendientes comerciales visibles y
+   entrega manual. No build, cobros, contactos a proveedores ni publicación.
+
+## Diseño de la entrega
+
+- `docs/esp/comparativoPasarelas.md`: cuadro único y consultas pendientes; fechas,
+  comisiones/fijos/IGV, Yape, pruebas, requisitos y API.
+- `docs/decisions/001-pasarelaIzipay.md`: fecha de registro, fuente, elección,
+  alternativas, consecuencias y pendientes, sin inventar razón económica ni acta.
+- `docs/esp/hu54Pagos.md`: criterios derivados, separación entre futuros requisitos
+  y código actual, y datos necesarios para cotejar HU-54 original.
+- `docs/esp/cobroCursos.md`: enlace de continuidad desde HU-53, preservando evidencia previa.
+
+## Riesgos y tratamiento
+
+| Riesgo | Tratamiento |
+| --- | --- |
+| Aplicar tarifas POS/Link o de otro país | Nombrar Perú/web y verificar producto por fuente |
+| Promoción vencida como costo actual | Registrar fecha y confirmar cotización actual |
+| Yape directo frente a pago alternativo/QR | Describir el mecanismo; no prometer equivalencia |
+| PayU sin tarifa accesible | Celda pendiente y consulta concreta; no inventar un porcentaje |
+| Elección confundida con pagos productivos | Estado de negocio separado de integración/afiliación |
+| HU-54 original ausente | Documento local explícitamente derivado; cotejo pendiente |
+| Transferencia confundida con efectivo o pasarela | Criterios propios y confirmación bancaria auditada en HU-54, sin falso estado implementado |
+| Destruir planes/conflictos anteriores | Añadir al final y comprobar hashes de prefijos |
+
+## Verificación y estimación
+
+Revisión documental/fuentes, enlaces relativos/anclas, trazabilidad y `git diff --check`.
+Pruebas de aplicación, TDD funcional y build no aplican mientras no cambie código.
+Si se amplía a software, se especifica la integración y se hace RED/GREEN real,
+regresión apropiada, revisión de seguridad y build manual. No se rebajan checks.
+La estimación por Planning Poker sigue pendiente, sin puntos inventados.
+
+## Ampliación T-25: implementación autorizada
+
+Solicitud posterior del usuario: implementar los medios elegidos. Se trabaja sobre el
+módulo de pagos existente; se mantienen intactos los entregables y pendientes comerciales.
+
+| Incremento | Resultado y aceptación | Verificación | Dependencia |
+| --- | --- | --- | --- |
+| T25-I01 | Configuración institucional segura y validación de declaración/decisión; I02/I03/I05 | Node test, errores de configuración y entradas adversarias | — |
+| T25-I02 | Migración nueva, declaración atómica y decisión administrativa auditada; I03–I07 | PostgreSQL real, RED/GREEN de idempotencia/roles/duplicados/concurrencia | I01 |
+| T25-I03 | API autorizada y checkout Izipay elegido; I01/I04/I08 | HTTP real, IDOR, cache y prohibición de confirmar por webhook | I02 |
+| T25-I04 | Formulario participante: destino y declaración; I02/I03/I08 | Vitest RED/GREEN e interacción de navegador | I03 |
+| T25-I05 | Gestión administrativa: confirmar/rechazar abono; I05/I06/I08 | Vitest y recorrido Playwright con API/BD reales | I04 |
+| T25-I06 | Regresión, simplificación, revisión de seguridad y entrega | Suites, tipos sin build, lint, diff y checklist de publicación | I05 |
+
+Cada incremento de código se limita a aproximadamente cinco archivos y se verifica
+antes del siguiente. No hay commits automáticos: los prepara y ejecuta el usuario.
+Fronteras de confianza: formulario→API autenticada→BD, y ADMIN→confirmación financiera.
+Abusos prioritarios: IDOR, confirmación por participante/webhook, replay de abono,
+cambio de condiciones, carrera entre medios y pago tardío que recupere cupo.
+La referencia declarada no prueba recepción; ADMIN contrasta el extracto bancario.
+La producción requiere migración manual, cuenta institucional, credenciales de comercio
+Izipay, sandbox real y build del usuario. No se activan pagos productivos en esta tarea.

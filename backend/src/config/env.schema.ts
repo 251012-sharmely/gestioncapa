@@ -59,6 +59,11 @@ const envSchema = z.object({
   jitsiHabilitado: booleanFromEnv.default(false),
   pagosEntorno: z.enum(['sandbox','produccion']).default('sandbox'),
   pagosUrlPublica: z.string().url().optional(),
+  transferenciaHabilitada: booleanFromEnv.default(false),
+  transferenciaBanco: z.string().trim().min(2).max(80).optional(),
+  transferenciaTitular: z.string().trim().min(3).max(160).optional(),
+  transferenciaCuenta: z.string().regex(/^\d{6,34}$/).optional(),
+  transferenciaCci: z.string().regex(/^\d{20}$/).optional(),
   izipayHabilitado: booleanFromEnv.default(false),
   izipayCodigoComercio: z.string().min(1).max(15).optional(),
   izipayClavePublica: z.string().min(16).max(400).optional(),
@@ -95,6 +100,11 @@ export class EnvError extends Error {
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const result = envSchema.superRefine((configuracion, contexto) => {
+    if (configuracion.transferenciaHabilitada) {
+      for (const nombre of ['transferenciaBanco','transferenciaTitular','transferenciaCuenta','transferenciaCci'] as const) {
+        if (!configuracion[nombre] || esValorDeEjemplo(configuracion[nombre])) contexto.addIssue({code:'custom',path:[nombre],message:'configura el destino institucional antes de habilitar transferencias'});
+      }
+    }
     if (configuracion.pagosEntorno === 'produccion' && configuracion.NODE_ENV !== 'production') contexto.addIssue({ code:'custom',path:['pagosEntorno'],message:'los cobros de producción requieren NODE_ENV=production' });
     const requeridos = [
       ...(configuracion.izipayHabilitado ? ['izipayCodigoComercio','izipayClavePublica','izipayClaveHash','izipayRsaPublica','pagosUrlPublica'] as const : []),

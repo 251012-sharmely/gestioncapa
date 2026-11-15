@@ -59,7 +59,7 @@ test('HU53: crea y edita el cobro; reserva, recibe efectivo y habilita contenido
   const { pagoId } = await (await alta).json() as { pagoId: string }
   await expect(participante.getByRole('button', { name: 'Pendiente de pago', exact: true })).toBeDisabled()
   await expect(participante.getByRole('heading', { name: '1. Contenido reservado' })).toHaveCount(0)
-  await expect(participante.getByRole('button', { name: 'Pagar con Culqi' })).toBeDisabled()
+  await expect(participante.getByRole('button', { name: 'Pagar con Culqi' })).toHaveCount(0)
   await registrarEfectivo(page, pagoId)
   await expect(participante.getByRole('heading', { name: 'Pago confirmado', exact: true })).toBeVisible({ timeout: 10000 })
   await expect(participante.getByRole('heading', { name: '1. Contenido reservado' })).toBeVisible()

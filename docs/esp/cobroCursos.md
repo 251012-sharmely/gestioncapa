@@ -280,3 +280,59 @@ ausentes antes del cambio y pasó después. La suite completa pasó 31/31, con C
 dos workers y esas variables vacías en el padre, sobre PostgreSQL/Redis temporales.
 `npm run e2e:tipos` y `git diff --check` aprobados. La ejecución remota de Actions y
 el build manual quedan pendientes; no se hicieron commits ni push desde el agente.
+
+## T-25 — Elección de pasarela y continuidad con HU-54
+
+La elección comunicada por el usuario es **Izipay**, con efectivo presencial y
+transferencia bancaria como medios adicionales. El
+[comparativo de cuatro candidatas](comparativoPasarelas.md), el
+[registro de decisión](../decisions/001-pasarelaIzipay.md) y los
+[criterios locales para HU-54](hu54Pagos.md) documentan esa definición.
+
+Esta selección de negocio no acredita afiliación, pruebas sandbox ni despliegue.
+La ampliación solicitada implementa la declaración de transferencia por referencia
+y la confirmación/rechazo ADMIN con conciliación bancaria real a cargo del CPPP.
+El efectivo conserva su flujo administrativo. Culqi conserva notificaciones,
+conciliación e historial; nuevos cobros usan Izipay.
+
+### Configurar y operar transferencias
+
+1. El usuario aplica `npm run migrate`: migraciones nuevas 0029 y 0030. Amplían el
+   medio y añaden destinos/declaraciones; los registros anteriores se conservan.
+2. Configurar de forma privada `transferenciaBanco`, `transferenciaTitular`,
+   `transferenciaCuenta` (6–34 dígitos) y `transferenciaCci` (20 dígitos), y activar
+   `transferenciaHabilitada=true`. Los marcadores de `.env.example` no son cuentas.
+3. El propietario ve el destino ofrecido para su obligación y declara referencia
+   y fecha de un abono ya realizado. Debe pagar el importe completo en PEN.
+4. ADMIN consulta `/admin/pagos?pago=<referencia>` y contrasta el extracto bancario:
+   destino, importe, moneda, fecha y referencia. Confirma recepción real o rechaza
+   con motivo; los intentos y decisiones quedan auditados.
+
+La primera cuenta ofrecida se conserva por obligación incluso al recargar o
+cambiar configuración. Los destinos nuevos usan la configuración vigente.
+Deshabilitar el flag deja de ofrecer cuentas a nuevas obligaciones, pero permite
+declarar abonos ya hechos a destinos anteriores; la interfaz indica no pagar otra vez.
+No se suben vouchers ni se confirma un pago por declarar una referencia.
+
+La declaración queda `DECLARADO`, bloquea nuevos cargos/efectivo y entrega de sesión
+Izipay. Puede coexistir con una operación iniciada antes de declarar: sus resultados
+se concilian. Los abonos tardíos o adicionales se conservan con incidencia y nunca
+recuperan automáticamente un cupo vencido ni aplican una deuda dos veces.
+Las devoluciones, importes parciales y excedentes requieren gestión del CPPP.
+
+### Publicación y recuperación
+
+Antes de habilitar: revisión humana, build manual, backup, migraciones en staging,
+cuenta institucional verificada y prueba real de Izipay con credenciales del comercio.
+Mantener nuevas ofertas deshabilitadas hasta actualizar todas las instancias del
+backend; los servidores anteriores no comprenden las declaraciones de transferencia.
+Se conservan las credenciales Culqi necesarias para obligaciones históricas.
+El cambio de nuevos cargos Culqi a Izipay es incompatible para esos consumidores;
+el [contrato API](../API.md#t-25--izipay-y-transferencias-bancarias) indica la adaptación.
+
+Para detener nuevas ofertas de transferencia, desactivar su flag sin borrar tablas
+ni operaciones. La revisión de abonos ya declarados sigue disponible. Una reversión
+del código necesita una versión que comprenda TRANSFERENCIA/DECLARADO: no desplegar
+el backend antiguo sobre filas con esos valores. Conservar migraciones y datos;
+no existe un down automático seguro que elimine historial financiero. La recuperación
+productiva exige una versión correctiva compatible y conciliación, con build manual.

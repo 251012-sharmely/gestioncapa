@@ -5,7 +5,8 @@ import { pool } from '../../src/shared/database.js';
 import { redis } from '../../src/shared/redis.js';
 import { migrar } from '../../src/shared/migraciones.js';
 import type { FastifyInstance } from 'fastify';
-import { crearObligacion } from '../../src/modules/pagos/pagos.repositorio.js';
+import { crearObligacion,obtenerPago } from '../../src/modules/pagos/pagos.repositorio.js';
+import { iniciarPago } from '../../src/modules/pagos/pagos.servicio.js';
 import { randomUUID, createHmac } from 'node:crypto';
 import { env } from '../../src/config/env.js';
 import { iniciarOperacion } from '../../src/modules/pagos/pagos.repositorio.js';
@@ -321,8 +322,10 @@ test('HU53-07: conserva referencia Culqi si falla la consulta y concilia sin cob
       if (!permitirConsulta) throw new Error('interrupción simulada');
       return new Response(JSON.stringify({object:'charge',id:referencia,amount:15050,currency_code:'PEN',response_code:'venta_exitosa',metadata}),{status:200});
     });restaurar=()=>llamada.mock.restore();
-    const respuesta=await llamar('alumno','POST',`/api/pagos/${alta.pagoId}/intentos`,{medio:'CULQI',clave:randomUUID(),token:'tkn_test_soloPruebas'});
-    assert.equal(respuesta.statusCode,503,respuesta.body);
+    // Simula una operación histórica anterior a la elección T-25. La API del
+    // participante ya no crea cargos Culqi; sí debe conciliar los existentes.
+    await assert.rejects(iniciarPago((await obtenerPago(alta.pagoId))!,Number(usuarios.get('alumno')!.id),
+      {medio:'CULQI',clave:randomUUID(),token:'tkn_test_soloPruebas'}),{statusCode:503});
     const operacion=(await llamar('alumno','GET',`/api/pagos/${alta.pagoId}`)).json().operaciones[0];
     assert.equal(operacion.referenciaExterna,referencia);
     assert.equal(operacion.estado,'INCIERTO');

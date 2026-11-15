@@ -232,3 +232,43 @@ y `pagoId`; el pago de constancia no convierte la inscripción en pendiente.
 `intentosAnteriores` conserva condiciones, estado y referencia de pago de las
 inscripciones anteriores del mismo propietario, también después de reinscribirse.
 Más detalles, migración, límites y evidencia: [Cobro de cursos](esp/cobroCursos.md).
+
+## T-25 — Izipay y transferencias bancarias
+
+Para nuevos intentos, `POST /api/pagos/:id/intentos` recibe `medio:"IZIPAY"`.
+`CULQI` devuelve 503 `PASARELA_NO_SELECCIONADA`, también cuando sus credenciales
+históricas están configuradas. Se conservan sus notificaciones y conciliación;
+los clientes deben cambiar de pasarela explícitamente, sin reutilizar tokens Culqi.
+
+`GET /api/pagos/:id` añade `transferencias`, `destinoTransferencia` y
+`medios.transferencia`. El destino contiene `{id,banco,titular,cuenta,cci}` y se
+conserva para esa obligación desde la primera oferta. Cambiar la configuración
+afecta a nuevas obligaciones. Con el flag apagado no se ofrecen destinos nuevos;
+uno previamente ofrecido sigue disponible para declarar un abono ya realizado.
+La respuesta requiere propietario o ADMIN y usa `Cache-Control: private, no-store`.
+
+| Método/ruta | Actor | Cuerpo y resultado |
+| --- | --- | --- |
+| POST /api/pagos/:id/transferencias | Propietario AGREMIADO activo | `{destinoId:UUID,clave:UUID,referencia:string,fechaOperacion:"YYYY-MM-DD"}`. 201 `{operacionId,estado:"DECLARADO"}`; repetición exacta 200 |
+| POST /api/pagos/:id/transferencias/:operacionId/revision | ADMIN activo | Confirmar: `{decision:"CONFIRMAR",referencia,fechaOperacion,importeCentimos,moneda:"PEN",verificado:true}`. Rechazar: `{decision:"RECHAZAR",motivo:string}`. 200 `{estado:"CONFIRMADO" o "RECHAZADO"}` |
+
+La referencia tiene 3–100 caracteres alfanuméricos, espacio, punto, barra o guion;
+se normaliza a mayúsculas y espacios simples. La fecha debe existir y no ser futura.
+La clave exige la misma carga y el destino debe haberse ofrecido a esa obligación.
+La declaración no inicia un cargo ni confirma dinero: guarda evidencia pendiente.
+`DECLARADO` es exclusivo de TRANSFERENCIA y admite una declaración por revisar por
+obligación. Mientras exista se bloquean nuevos cargos, efectivo y recuperación de
+sesión Izipay; la conciliación de operaciones previamente iniciadas se conserva.
+
+ADMIN contrasta el abono real con el destino persistido, el importe congelado,
+moneda, referencia y fecha. No hay carga pública de archivos ni confirmación desde
+webhooks para medios manuales. Se auditan declaración, decisión, actor y fecha.
+La decisión terminal solo admite repetición exacta; cambiarla devuelve 409.
+CCI + fecha + referencia identifica un abono, que no puede pagar dos obligaciones.
+El destino ajeno devuelve 422; operación ajena 404; permisos 401/403; discrepancias,
+clave reutilizada o abono reutilizado 409. Los cuerpos tienen límite de 4 KiB.
+
+Se pueden conservar declaraciones tardías o de ingresos adicionales a un destino
+ya ofrecido. Confirmar un pago tardío conserva la incidencia TARDIO sin recuperar
+cupo; un ingreso adicional deja hecho e incidencia para conciliación sin aplicar
+otra vez la deuda. No se automatizan devoluciones ni se aceptan pagos parciales.

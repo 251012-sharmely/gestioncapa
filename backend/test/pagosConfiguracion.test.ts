@@ -18,3 +18,15 @@ test('HU53-08: activar exige credenciales propias, entorno coherente y callback 
   assert.equal(config.culqiHabilitado, true);
   assert.throws(() => parseEnv({ ...base,culqiHabilitado:'true',culqiClavePublica:'pk_live_noUsar',culqiClaveSecreta:'sk_live_noUsar',pagosUrlPublica:'https://cursos.example.org' }));
 });
+
+test('T25-I02: transferencia apagada exige destino institucional completo al habilitar', () => {
+  assert.equal(parseEnv(base).transferenciaHabilitada, false);
+  assert.throws(() => parseEnv({ ...base, transferenciaHabilitada:'true' }));
+  const destino = { transferenciaHabilitada:'true', transferenciaBanco:'BCP',
+    transferenciaTitular:'Entidad exclusivamente de prueba', transferenciaCuenta:'1234567890123',
+    transferenciaCci:'00212345678901234567' };
+  assert.equal(parseEnv({ ...base,...destino }).transferenciaBanco,'BCP');
+  for (const cambio of [{transferenciaCci:'123'},{transferenciaTitular:'CAMBIA_TITULAR'},{transferenciaCuenta:'https://cuenta.test'}]) {
+    assert.throws(() => parseEnv({ ...base,...destino,...cambio }));
+  }
+});

@@ -6,7 +6,7 @@ import type { Pago } from '@/servicios/pagos'
 
 export function RegistroEfectivoFormulario({pago,ocupado,alRegistrar}:{pago:Pago;ocupado:boolean;alRegistrar:(referencia:string)=>void}) {
   const [confirmado,cambiarConfirmado]=useState(false)
-  const enProceso=pago.operaciones.some(op=>op.estado==='INICIADO'||op.estado==='INCIERTO')
+  const enProceso=pago.operaciones.some(op=>['INICIADO','INCIERTO','DECLARADO'].includes(op.estado))
   return <form className="space-y-4 rounded-xl border border-line bg-white p-5" onSubmit={e=>{
     e.preventDefault()
     const datos=new FormData(e.currentTarget)
@@ -18,7 +18,7 @@ export function RegistroEfectivoFormulario({pago,ocupado,alRegistrar}:{pago:Pago
       <div><dt className="font-semibold">Curso</dt><dd>{pago.cursoTitulo}</dd></div>
       <div><dt className="font-semibold">Importe completo</dt><dd>S/ {(pago.importeCentimos/100).toFixed(2)} PEN</dd></div>
     </dl>
-    {enProceso && <p role="status">Debes conciliar la operación de la pasarela antes de registrar efectivo.</p>}
+    {enProceso && <p role="status">Debes conciliar o revisar la operación pendiente antes de registrar efectivo.</p>}
     {!pago.exigible && pago.estado!=='PAGADO' && <p role="status">La reserva no está vigente. Registrar la recepción conservará el pago para revisión y no recuperará el cupo.</p>}
     <fieldset disabled={ocupado||enProceso||pago.estado==='PAGADO'} className="space-y-4">
       <Campo etiqueta="Referencia del recibo interno" obligatorio>
