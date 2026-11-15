@@ -243,3 +243,75 @@ atribuyen a HU-22. Sin commits nuevos del agente ni versión publicada;
 clasificación documental Interno y propuesta condicional `v2.0.0.1.1` desde
 `v2.0.0.1.0`, sin asignar incrementos por cada tarea.
 >>>>>>> Stashed changes
+
+---
+
+## T-20: main protegida, CI por PR y revisión registrada
+
+Estado: **especificación y plan propuestos; implementación pendiente de aprobación**.
+Fecha: 14/11/2026. [Especificación](../SPEC.md) · [Plan](plan.md), sección T-20.
+Destino confirmado: `lovito99/gestioncapa` (`upstream`).
+Se añade esta sección con autorización del usuario, conservando íntegros los
+pendientes CPPP y marcadores de conflicto anteriores.
+
+### Preparación de esta entrega documental
+
+- [x] Revisar AGENTS.md, scripts, workflows, plantilla, guías e historial local.
+- [x] Confirmar destino central y permiso para añadir secciones a los planes existentes.
+- [x] Consultar protección, ejecuciones y revisiones actuales mediante GET públicos.
+- [x] Identificar que falla E2E real; no atribuirle una causa todavía no demostrada.
+- [x] Definir T20-01…08, responsabilidades, límites, dependencias y verificaciones.
+- [x] Guardar SPEC.md y las secciones T-20 de plan.md y todo.md.
+- [ ] Obtener aprobación del usuario antes de implementar.
+
+### Ejecución posterior a aprobación
+
+- [ ] **T20-P1 — Diagnóstico reproducible** (S; depende de aprobación).
+  - Aceptación: prueba concreta, fallo esperado y causa raíz documentados.
+  - Verificación: log/informe y comando enfocado; rojo por el defecto, no por servicios caídos.
+  - Archivos: prueba identificada en `e2e/prb/real/`, si requiere precisión; `docs/evidenciaT20.md`.
+  - Precisar archivos de P2 antes de modificar su implementación.
+- [ ] **T20-P2 — Corrección mínima** (M; depende de P1).
+  - Aceptación: regresión roja antes del arreglo, verde después, limpieza acotada sin cambiar comportamiento.
+  - Verificación: prueba enfocada, tipos, unitarias y E2E demo/real; integración y cobertura si aplican.
+  - Archivos: máximo cuatro, identificados por P1; sin ampliación silenciosa de alcance.
+  - Entregar mensaje de commit al usuario; el agente no lo ejecuta.
+- [ ] **Control A — Causa y regresión**: evidencia rojo/verde, alcance revisado y suites afectadas satisfactorias.
+- [ ] **T20-P3 — Contrato CI/Jira** (M; depende de P2).
+  - Aceptación: eventos de PR, clave en rama o título y cuatro checks reales, con permisos mínimos.
+  - Verificación: YAML/Actions, entradas/salidas del validador y eventos/Checks del PR.
+  - Archivos: dos workflows, evidencia y test solo si cambia lógica; no reescribir lo que ya cumple.
+- [ ] **T20-P4 — Guías coherentes** (M; depende de P3).
+  - Aceptación: nombres de checks, revisión humana, instalación y evidencias sin contradicciones.
+  - Verificación: comparación con scripts/workflows, enlaces y diff documental.
+  - Archivos: `docs/calidad.md`, `docs/esp/calidad.md`, `docs/e2e.md`, `README.md` y plantilla existente del PR.
+- [ ] **Control B — Listo para PR manual**: comprobaciones aplicables, build ejecutado por el usuario y PR nuevo al central con clave confirmada.
+- [ ] **T20-P5 — Protección efectiva** (S; depende de Control B y checks recientes).
+  - Aceptación: regla `main` guardada, PR + 1 aprobación, cuatro checks y sin bypass.
+  - Verificación: captura/configuración efectiva y merge bloqueado sin aprobación o con checks fallidos; sin push de prueba.
+  - Responsable: administrador humano. Registro: `docs/evidenciaT20.md`.
+- [ ] **T20-P6 — Revisión y evidencia final** (S; depende de P5).
+  - Aceptación: Approve humano vigente y cuatro checks success para el último estado del PR.
+  - Verificación: enlaces, SHAs, captura y T20-01…08; revisión de calidad, seguridad y preparación de entrega.
+  - Archivos: `docs/evidenciaT20.md` y esta sección de seguimiento.
+  - Si cambia el PR al registrar evidencia, repetir checks y renovar la aprobación.
+- [ ] **Control C — Cierre**: criterios y Definition of Done acreditados; límites y pendientes informados antes de decidir merge manual.
+
+### Evidencias y decisiones todavía pendientes
+
+- [ ] Confirmar en Jira si `SCRUM-118` es la clave real de T-20.
+- [ ] Identificar administrador y revisor humano con escritura, distinto del autor.
+- [ ] Diagnosticar la causa del fallo E2E real y registrar su prueba de regresión.
+- [ ] Resolver o aceptar expresamente los riesgos de dependencias, scripts y ausencia de lockfile versionado.
+- [ ] Aportar build local ejecutado manualmente por el usuario tras la implementación.
+- [ ] Captura de la regla guardada para `main` central y protección efectiva.
+- [ ] URL del nuevo PR y de la aprobación humana vigente.
+- [ ] URLs de Calidad y E2E satisfactorias, con fecha y SHAs del estado aceptado.
+- [ ] Registrar Planning Poker cuando el equipo aporte su estimación.
+- [ ] Revisar `~/.agents/agent-skills/references/definition-of-done.md` y `security-checklist.md` sobre el resultado implementado, sin declarar aprobados controles pendientes.
+
+Esta fase solo añade documentación; no ejecuta pruebas funcionales, build,
+operaciones Git de escritura ni cambios de configuración en GitHub. Las
+ejecuciones consultadas son antecedentes remotos. No hay commits nuevos del
+agente ni versión publicada; propuesta documental: Interno, `v2.0.0.1.1`
+desde la base local comprobada `v2.0.0.1.0`, según VERSIONING.md.
