@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { MigracionError } from "./shared/migraciones.js";
+import { iniciarProcesosCobro } from './cobro.procesos.js';
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -16,6 +17,7 @@ try {
 }
 
 try {
+  iniciarProcesosCobro(app);
   await app.listen({ host: env.HOST, port: env.PORT });
 } catch (error) {
   app.log.error(error);

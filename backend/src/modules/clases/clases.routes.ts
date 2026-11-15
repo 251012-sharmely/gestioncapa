@@ -188,6 +188,7 @@ export async function clasesRoutes(app: FastifyInstance) {
       // Sin inserción: o ya estaba inscrito, o la clase se canceló mientras tanto.
       if ((await obtenerClase(id))?.estado === "CANCELADA") return claseCancelada(reply);
       const inscritoEn = await buscarInscripcion(id, participante.id);
+      if (!inscritoEn) return enviarError(reply,403,'INSCRIPCION_NO_CONFIRMADA','Confirma la inscripción del participante en el curso antes de añadirlo a esta sesión.');
       const desde = inscritoEn ? ` desde el ${fechaLarga(inscritoEn.slice(0, 10))} a las ${inscritoEn.slice(11, 16)}` : "";
       return enviarError(
         reply,

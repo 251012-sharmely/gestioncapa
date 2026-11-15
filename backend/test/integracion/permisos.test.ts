@@ -12,7 +12,8 @@ import { migrar } from "../../src/shared/migraciones.js";
 import { redis } from "../../src/shared/redis.js";
 
 // Requiere Postgres y Redis activos (docker compose up -d --wait) y backend/.env.
-const criticas = permisos.filter((permiso) => permiso.critica);
+// Las notificaciones de proveedores se verifican con su firma/API, no con roles humanos.
+const criticas = permisos.filter((permiso) => permiso.critica && permiso.acceso !== 'publico');
 const urlDe = (ruta: string) => ruta.replace(/:[a-zA-Z]+/g, "1");
 const tokens = new Map<Rol, string>();
 let app: FastifyInstance;
@@ -45,6 +46,19 @@ describe("Característica: Autorización por rol en cada ruta del servidor", () 
   test("PER-07: Hay un token del seed para cada uno de los 3 roles", () => {
     assert.deepEqual([...tokens.keys()].sort(), ["ADMIN", "AGREMIADO", "INSTRUCTOR"]);
   });
+
+  for (const rol of [null,'ADMIN','AGREMIADO','INSTRUCTOR'] as const) {
+    test(`PER-08: webhook sin firma válida se rechaza también con JWT ${rol??'ausente'}`,async()=>{
+      const anterior=env.izipayHabilitado;env.izipayHabilitado=true;
+      try {
+        const antes=(await pool.query('select count(*)::int as total from "hechosPago"')).rows[0].total;
+        const respuesta=await app.inject({method:'POST',url:'/api/pagos/notificaciones/izipay',headers:rol?{authorization:`Bearer ${tokens.get(rol)}`}:{},payload:{}});
+        assert.equal(respuesta.statusCode,422);
+        assert.equal(respuesta.json().code,'NOTIFICACION_INVALIDA');
+        assert.equal((await pool.query('select count(*)::int as total from "hechosPago"')).rows[0].total,antes);
+      } finally {env.izipayHabilitado=anterior;}
+    });
+  }
 
   for (const { metodo, ruta, acceso } of criticas) {
     test(`PER-07: ${metodo} ${ruta} sin token responde 401`, async () => {

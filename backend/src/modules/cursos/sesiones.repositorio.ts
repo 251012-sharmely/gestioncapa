@@ -26,6 +26,8 @@ export async function programarSesion(cursoId: string, datos: DatosClase) {
       (curso_id,nombre,instructor_id,fecha,hora_inicio,hora_fin,lugar)
       values($1,$2,$3,$4,$5,$6,$7) returning id::text`,
     [cursoId, datos.nombre, datos.instructorId, datos.fecha, datos.horaInicio, datos.horaFin, datos.lugar])).rows[0]!.id;
+    await cliente.query(`insert into enrollments(class_id,user_id) select $1,usuario_id from inscripciones_curso
+      where curso_id=$2 and estado='EN_CURSO' and "tieneAccesoCurso"(curso_id,usuario_id) on conflict do nothing`,[id,cursoId]);
     return { sesion: { ...await obtenerClase(Number(id), cliente), cursoId } } as const;
   });
 }
