@@ -4,6 +4,7 @@ import { test, expect } from '../../ayud/prueba'
 import { cuentaReal, cuentas } from '../../ayud/datos'
 import { entrar } from '../../ayud/sesion'
 import type { Page } from '@playwright/test'
+import { entornoBackendReal } from '../../ayud/entornoReal'
 
 test.use({ viewport: { width: 360, height: 800 } })
 
@@ -71,7 +72,7 @@ test('HU53: crea y edita el cobro; reserva, recibe efectivo y habilita contenido
 test('HU53: retiene la constancia hasta pagar y emite gratis sin obligación', async ({ page, context }) => {
   test.setTimeout(90000)
   const { stdout } = await promisify(execFile)('node', ['--import', 'tsx', 'src/scripts/cobroDemoE2e.ts'], {
-    cwd: 'backend', env: { ...process.env, NODE_ENV: 'test', DB_NAME: 'gestioncapa_e2e' },
+    cwd: 'backend', env: { ...process.env, ...entornoBackendReal },
   })
   const cursos = JSON.parse(stdout) as { id: string; titulo: string; modalidadCobro: string }[]
   await entrar(page, cuentaReal)

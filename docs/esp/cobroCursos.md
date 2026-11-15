@@ -251,3 +251,32 @@ de carga del despliegue.
 Tras añadir la consulta de intentos anteriores, se repitieron 4 E2E reales de cobro
 e historial: aprobados. La regresión completa anterior tiene 31 casos aprobados,
 y los 12 demo seleccionados también pasaron. Frontend final: 70 pruebas en 15 archivos.
+
+## Entorno de preparación de datos E2E
+
+`e2e/ayud/entornoReal.ts` define los valores públicos de prueba compartidos por
+el servidor Playwright y las preparaciones de datos HU-20/HU-53. Cada proceso hijo
+combina la conexión heredada del job con este perfil; no depende de que la terminal
+o GitHub Actions definan credenciales de sesión y administrador.
+
+La configuración `webServer.env` solo configura los servidores que inicia Playwright;
+no modifica `process.env` de los tests. Preparar HU-53 con solo NODE_ENV y DB_NAME
+dejaba JWT_SECRET, QR_SECRET, ADMIN_EMAIL y ADMIN_PASSWORD ausentes en CI.
+Ese mismo caso podía pasar localmente cuando la terminal ya tenía esos valores.
+
+La regresión se reproduce con conexiones aisladas de PostgreSQL/Redis y las cuatro
+variables vacías en el proceso principal:
+
+```bash
+JWT_SECRET= QR_SECRET= ADMIN_EMAIL= ADMIN_PASSWORD= npm run e2e:real
+```
+
+La validación estricta del backend y la restricción
+a `gestioncapa_e2e` siguen activas. Se reutiliza el E2E existente de retención como
+prueba RED/GREEN, sin omitir casos ni añadir credenciales reales al workflow.
+
+Resultado de esta corrección: el caso focalizado falló por las cuatro variables
+ausentes antes del cambio y pasó después. La suite completa pasó 31/31, con CI=true,
+dos workers y esas variables vacías en el padre, sobre PostgreSQL/Redis temporales.
+`npm run e2e:tipos` y `git diff --check` aprobados. La ejecución remota de Actions y
+el build manual quedan pendientes; no se hicieron commits ni push desde el agente.
