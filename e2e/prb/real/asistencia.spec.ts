@@ -2,7 +2,7 @@ import type { Response } from '@playwright/test'
 import { expect, test } from '../../ayud/prueba'
 import { cuentas } from '../../ayud/datos'
 import { apiReal, rutas } from '../../ayud/rutas'
-import { completarAcceso, entrar } from '../../ayud/sesion'
+import { entrar } from '../../ayud/sesion'
 import type { QrAsistencia } from '../../../frontend/src/types/api'
 
 const NOMBRE = 'Asistencia completa E2E'
@@ -68,8 +68,7 @@ test('VIN-01: flujo completo de asistencia por QR con el backend real', async ({
   // Coordinadora: comprueba quién asistió.
   await page.getByRole('button', { name: 'Cerrar sesión' }).click()
   await expect(page).toHaveURL(rutas.login)
-  await completarAcceso(page, cuentas.coord)
-  await expect(page).toHaveURL(rutas.clases)
+  await entrar(page, cuentas.coord)
   await page.goto(rutas.asistencia(id))
   await expect(page.getByRole('heading', { name: 'Asistencia', exact: true })).toBeVisible()
   await expect(page.getByRole('row').filter({ hasText: cuentas.part.email })).toContainText('Presente')
