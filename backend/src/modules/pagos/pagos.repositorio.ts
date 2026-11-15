@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../shared/database.js';
-import { ErrorPago, type Pago, type OperacionPago } from './pagos.modelo.js';
+import { ErrorPago, type Pago, type OperacionPago, type DeclaracionTransferencia } from './pagos.modelo.js';
 
 const columnasPago = `id::text,"cursoId"::text,"usuarioId"::text,"intentoId",concepto,"importeCentimos"::float8,moneda,estado,medio,"pagadoEn"::text`;
 const columnasOperacion = `id,numero::text,"pagoId"::text,medio,clave,"cargaHash",estado,"referenciaExterna",entorno`;
@@ -13,7 +13,7 @@ export async function crearObligacion(cliente: Pick<PoolClient,'query'>, datos: 
     values($1,$2,$3,$4,$5,$6) returning ${columnasPago}`,
   [datos.cursoId,datos.usuarioId,datos.intentoId,datos.concepto,datos.importeCentimos,datos.moneda])).rows[0]!;
 }
-async function conPago<T>(id: string, trabajo: (cliente: PoolClient, pago: Pago) => Promise<T>) {
+export async function conPago<T>(id: string, trabajo: (cliente: PoolClient, pago: Pago) => Promise<T>) {
   const cliente = await pool.connect();
   try {
     await cliente.query('begin');
@@ -30,7 +30,7 @@ async function conPago<T>(id: string, trabajo: (cliente: PoolClient, pago: Pago)
   }
   finally { cliente.release(); }
 }
-export async function iniciarOperacion(pagoId: string, usuarioId: number, entrada: { medio: 'IZIPAY'|'CULQI'; clave: string; cargaHash: string; entorno?:'sandbox'|'produccion' }) {
+export async function iniciarOperacion(pagoId: string, usuarioId: number, entrada: { medio: 'IZIPAY'|'CULQI'|'TRANSFERENCIA'; clave: string; cargaHash: string; entorno?:'sandbox'|'produccion'; transferencia?:DeclaracionTransferencia }) {
   return conPago(pagoId, async (cliente,pago) => {
     if (String(pago.usuarioId) !== String(usuarioId)) throw new ErrorPago(403,'SIN_PERMISO','No tienes permiso para este pago.');
     if (!(await cliente.query(`select id from users where id=$1 and active and role='agremiado' for share`,[usuarioId])).rowCount) throw new ErrorPago(403,'SIN_PERMISO','El participante no está disponible.');
@@ -39,15 +39,24 @@ export async function iniciarOperacion(pagoId: string, usuarioId: number, entrad
       if (anterior.cargaHash !== entrada.cargaHash || anterior.medio !== entrada.medio) throw new ErrorPago(409,'CLAVE_REUTILIZADA','La clave corresponde a otra solicitud.');
       return { ...anterior,nueva:false };
     }
-    if (pago.estado === 'PAGADO') throw new ErrorPago(409,'PAGO_CONFIRMADO','El pago ya está confirmado.');
+    if (pago.estado === 'PAGADO' && entrada.medio!=='TRANSFERENCIA') throw new ErrorPago(409,'PAGO_CONFIRMADO','El pago ya está confirmado.');
     const condiciones=(await cliente.query<{valido:boolean}>(`select case when $2='CURSO' then t.estado='PENDIENTE_PAGO' and t."venceEn">clock_timestamp() and i."intentoId"=t.id
       else exists(select 1 from "entregasConstancia" e where e."intentoId"=t.id and e."pagoId"=$3 and e.estado='RETENIDA') end as valido
       from "intentosInscripcion" t left join inscripciones_curso i on i.curso_id=t."cursoId" and i.usuario_id=t."usuarioId" where t.id=$1`,[pago.intentoId,pago.concepto,pago.id])).rows[0];
-    if (condiciones && !condiciones.valido) throw new ErrorPago(409,'RESERVA_NO_VIGENTE','La reserva venció o la obligación todavía no es exigible.');
-    if ((await cliente.query('select 1 from "incidenciasPago" where "pagoId"=$1 limit 1',[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_CONCILIACION','Existe una incidencia financiera pendiente de revisión.');
-    if ((await cliente.query(`select 1 from "operacionesPago" where "pagoId"=$1 and estado in ('INICIADO','INCIERTO')`,[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_PROCESO','Existe una operación pendiente de conciliación.');
-    const op=(await cliente.query<OperacionPago>(`insert into "operacionesPago"(id,"pagoId",medio,clave,"cargaHash",entorno) values($1,$2,$3,$4,$5,$6) returning ${columnasOperacion}`,
-    [randomUUID(),pagoId,entrada.medio,entrada.clave,entrada.cargaHash,entrada.entorno??'sandbox'])).rows[0]!;
+    if (condiciones && !condiciones.valido && entrada.medio!=='TRANSFERENCIA') throw new ErrorPago(409,'RESERVA_NO_VIGENTE','La reserva venció o la obligación todavía no es exigible.');
+    if (entrada.medio==='TRANSFERENCIA') {
+      if (!(await cliente.query(`select 1 from "destinosTransferencia" where id=$1 and "pagoId"=$2`,[entrada.transferencia?.destinoId,pagoId])).rowCount) throw new ErrorPago(422,'DESTINO_INVALIDO','El destino no pertenece a esta obligación.');
+      if (!(await cliente.query('select $1::date<=current_date as valida',[entrada.transferencia!.fechaOperacion])).rows[0].valida) throw new ErrorPago(422,'FECHA_INVALIDA','La fecha bancaria no puede estar en el futuro.');
+    }
+    if (entrada.medio!=='TRANSFERENCIA' && (await cliente.query('select 1 from "incidenciasPago" where "pagoId"=$1 limit 1',[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_CONCILIACION','Existe una incidencia financiera pendiente de revisión.');
+    if ((await cliente.query(`select 1 from "operacionesPago" where "pagoId"=$1 and estado in ('INICIADO','INCIERTO','DECLARADO') and ($2<>'TRANSFERENCIA' or medio='TRANSFERENCIA')`,[pagoId,entrada.medio])).rowCount) throw new ErrorPago(409,'PAGO_EN_PROCESO','Existe una operación pendiente de conciliación.');
+    const op=(await cliente.query<OperacionPago>(`insert into "operacionesPago"(id,"pagoId",medio,clave,"cargaHash",entorno,estado) values($1,$2,$3,$4,$5,$6,$7) returning ${columnasOperacion}`,
+    [randomUUID(),pagoId,entrada.medio,entrada.clave,entrada.cargaHash,entrada.entorno??'sandbox',entrada.medio==='TRANSFERENCIA'?'DECLARADO':'INICIADO'])).rows[0]!;
+    if (entrada.medio==='TRANSFERENCIA') {
+      const transferencia=entrada.transferencia!;
+      await cliente.query(`insert into "transferenciasPago"("operacionId","destinoId",referencia,"fechaOperacion") values($1,$2,$3,$4)`,[op.id,transferencia.destinoId,transferencia.referencia,transferencia.fechaOperacion]);
+      await cliente.query(`insert into "auditoriaPagos"("pagoId","actorId",accion,"operacionId") values($1,$2,'DECLARAR_TRANSFERENCIA',$3)`,[pagoId,usuarioId,op.id]);
+    }
     return { ...op,nueva:true };
   });
 }
@@ -62,7 +71,7 @@ async function registrarIncidencia(cliente: PoolClient, pago: Pago, op: Operacio
   await cliente.query(`insert into "auditoriaPagos"("pagoId",accion,"operacionId") values($1,'INCIDENCIA',$2)`,[pago.id,op.id]);
   return 'CONCILIACION' as const;
 }
-async function guardarHecho(cliente: PoolClient, pago: Pago, op: OperacionPago, hecho: { referencia: string; importeCentimos: number; moneda: string }, actorId: number | null) {
+export async function guardarHecho(cliente: PoolClient, pago: Pago, op: OperacionPago, hecho: { referencia: string; importeCentimos: number; moneda: string }, actorId: number | null) {
   // Serializa referencias entre obligaciones distintas sin cambiar el orden de locks.
   await cliente.query('select pg_advisory_xact_lock(hashtextextended($1,0))',[`${op.medio}:${hecho.referencia}`]);
   const incidencia = (await cliente.query<{ pagoId: string; operacionId: string }>(`select i."pagoId"::text as "pagoId",i."operacionId" from "incidenciasPago" i
@@ -76,6 +85,8 @@ async function guardarHecho(cliente: PoolClient, pago: Pago, op: OperacionPago, 
   }
   await cliente.query(`insert into "hechosPago"("pagoId","operacionId",medio,referencia,"importeCentimos",moneda,"requiereConciliacion") values($1,$2,$3,$4,$5,$6,$7)`,
   [pago.id,op.id,op.medio,hecho.referencia,hecho.importeCentimos,hecho.moneda,pago.estado === 'PAGADO']);
+  if(pago.estado==='PAGADO') await cliente.query(`insert into "incidenciasPago"("pagoId","operacionId",motivo,referencia,"importeCentimos",moneda)
+    values($1,$2,'REFERENCIA',$3,$4,$5) on conflict do nothing`,[pago.id,op.id,hecho.referencia,hecho.importeCentimos,hecho.moneda]);
   await cliente.query(`update "operacionesPago" set estado='CONFIRMADO',"referenciaExterna"=coalesce("referenciaExterna",$2),"actualizadoEn"=clock_timestamp() where id=$1`,[op.id,hecho.referencia]);
   await cliente.query(`update "obligacionesPago" set estado='PAGADO',medio=$2,"pagadoEn"=clock_timestamp() where id=$1 and estado='PENDIENTE'`,[pago.id,op.medio]);
   await cliente.query(`insert into "auditoriaPagos"("pagoId","actorId",accion,"operacionId") values($1,$2,'CONFIRMAR',$3)`,[pago.id,actorId,op.id]);
@@ -84,7 +95,7 @@ async function guardarHecho(cliente: PoolClient, pago: Pago, op: OperacionPago, 
 export async function confirmarOperacion(id: string, hecho: { referencia: string; importeCentimos: number; moneda: string }) {
   const operacion = await buscarOperacion(id);
   if (!operacion) throw new ErrorPago(404,'OPERACION_NO_EXISTE','La operación no existe.');
-  if (operacion.medio === 'EFECTIVO') throw new ErrorPago(403,'SIN_PERMISO','El efectivo requiere registro administrativo.');
+  if (operacion.medio === 'EFECTIVO' || operacion.medio==='TRANSFERENCIA') throw new ErrorPago(403,'SIN_PERMISO','El pago manual requiere registro administrativo.');
   return conPago(operacion.pagoId, (cliente,pago) => guardarHecho(cliente,pago,operacion,hecho,null));
 }
 export async function conservarRespuestaMultiple(id:string,hechos:{referencia:string;importeCentimos:number;moneda:string}[]) {
@@ -109,7 +120,7 @@ export async function registrarEfectivo(pagoId: string, actorId: number, referen
     if (anterior?.pagoId === pagoId) return;
     if (anterior) throw new ErrorPago(409,'REFERENCIA_REUTILIZADA','La referencia ya se utilizó.');
     if ((await cliente.query('select 1 from "incidenciasPago" where "pagoId"=$1 limit 1',[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_CONCILIACION','Existe una incidencia financiera pendiente de revisión.');
-    if (pago.estado === 'PAGADO' || (await cliente.query(`select 1 from "operacionesPago" where "pagoId"=$1 and estado in ('INICIADO','INCIERTO')`,[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_PROCESO','El pago está confirmado o tiene una operación en proceso.');
+    if (pago.estado === 'PAGADO' || (await cliente.query(`select 1 from "operacionesPago" where "pagoId"=$1 and estado in ('INICIADO','INCIERTO','DECLARADO')`,[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_PROCESO','El pago está confirmado o tiene una operación en proceso.');
     const op = (await cliente.query<OperacionPago>(`insert into "operacionesPago"(id,"pagoId",medio,clave,"cargaHash") values($1,$2,'EFECTIVO',$3,$4) returning ${columnasOperacion}`,
     [randomUUID(),pagoId,randomUUID(),createHash('sha256').update(referencia).digest('hex')])).rows[0]!;
     await guardarHecho(cliente,pago,op,{ referencia, importeCentimos:pago.importeCentimos, moneda:pago.moneda },actorId);

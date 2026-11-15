@@ -21,6 +21,8 @@ export const permisos: Permiso[] = [
   { metodo:'GET',ruta:'/api/pagos/:id',acceso:['ADMIN','AGREMIADO'] },
   { metodo:'POST',ruta:'/api/pagos/:id/intentos',acceso:['AGREMIADO'],critica:true },
   { metodo:'POST',ruta:'/api/pagos/:id/efectivo',acceso:['ADMIN'],critica:true },
+  { metodo:'POST',ruta:'/api/pagos/:id/transferencias',acceso:['AGREMIADO'],critica:true },
+  { metodo:'POST',ruta:'/api/pagos/:id/transferencias/:operacionId/revision',acceso:['ADMIN'],critica:true },
   { metodo:'POST',ruta:'/api/pagos/:id/conciliar',acceso:['ADMIN'],critica:true },
   { metodo:'POST',ruta:'/api/pagos/notificaciones/:proveedor',acceso:'publico',critica:true },
   { metodo: 'GET', ruta: '/api/usuarios', acceso: ['ADMIN'] },

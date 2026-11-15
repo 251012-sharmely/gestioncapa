@@ -8,8 +8,7 @@ import { crearCargoCulqi, consultarCargoCulqi, verificarCargoCulqi } from './cul
 import { guardarSesionIzipay, recuperarSesionIzipay } from './pagos.sesion.js';
 
 export function mediosDisponibles() {
-  return { izipay:env.izipayHabilitado,culqi:env.culqiHabilitado,efectivo:true,entorno:env.pagosEntorno,
-    ...(env.culqiHabilitado ? { culqiClavePublica:env.culqiClavePublica } : {}) };
+  return { izipay:env.izipayHabilitado,culqi:false,efectivo:true,transferencia:env.transferenciaHabilitada,entorno:env.pagosEntorno };
 }
 export async function iniciarPago(pago:Pago,usuarioId:number,entrada:{medio:'IZIPAY'|'CULQI';clave:string;token?:string|undefined}) {
   if ((entrada.medio==='IZIPAY' && !env.izipayHabilitado) || (entrada.medio==='CULQI' && !env.culqiHabilitado)) throw new ErrorPago(503,'PASARELA_NO_CONFIGURADA','Esta pasarela todavía no está disponible.');
@@ -32,7 +31,10 @@ export async function iniciarPago(pago:Pago,usuarioId:number,entrada:{medio:'IZI
       const izipay={ token,keyRSA:env.izipayRsaPublica!,comercio:datos.comercio,orden:datos.orden,
         transaccionId:datos.transaccionId,importe:(pago.importeCentimos/100).toFixed(2),urlIPN:`${env.pagosUrlPublica}/api/pagos/notificaciones/izipay`,entorno:op.entorno };
       await guardarSesionIzipay(op.id,izipay);
-      return { operacionId:op.id,estado:op.estado,izipay };
+      // La creación externa puede haber coincidido con una declaración bancaria.
+      // Aplica también a la primera entrega las condiciones de recuperación.
+      const disponible=await recuperarSesionIzipay(op.id);
+      return { operacionId:op.id,estado:op.estado,...(disponible?{izipay:disponible}:{}) };
     }
     const usuario=(await pool.query<{email:string}>('select email from users where id=$1',[usuarioId])).rows[0]!;
     const referencia=await crearCargoCulqi(op,pago,entrada.token!,usuario.email,env.culqiClaveSecreta!);

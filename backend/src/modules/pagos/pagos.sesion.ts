@@ -28,7 +28,8 @@ export async function recuperarSesionIzipay(operacionId:string):Promise<SesionIz
     where o.id=$1 and o.entorno=$2 and o.estado='INICIADO' and p.estado='PENDIENTE' and o."sesionVenceEn">clock_timestamp()
     and (case when p.concepto='CURSO' then t.estado='PENDIENTE_PAGO' and t."venceEn">clock_timestamp() and ins."intentoId"=t.id
       else exists(select 1 from "entregasConstancia" e where e."pagoId"=p.id and e.estado='RETENIDA') end)
-    and not exists(select 1 from "incidenciasPago" i where i."pagoId"=o."pagoId")`,[operacionId,env.pagosEntorno])).rows[0];
+    and not exists(select 1 from "incidenciasPago" i where i."pagoId"=o."pagoId")
+    and not exists(select 1 from "operacionesPago" tr where tr."pagoId"=o."pagoId" and tr.medio='TRANSFERENCIA' and tr.estado in ('INICIADO','INCIERTO','DECLARADO'))`,[operacionId,env.pagosEntorno])).rows[0];
   if (!fila?.sesionCifrada) return;
   try {
     const bytes=Buffer.from(fila.sesionCifrada,'base64');
