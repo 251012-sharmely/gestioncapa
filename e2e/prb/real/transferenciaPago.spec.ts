@@ -5,7 +5,7 @@ import { cuentaReal,cuentas } from '../../ayud/datos'
 import { entrar } from '../../ayud/sesion'
 import { entornoBackendReal } from '../../ayud/entornoReal'
 
-test('T25: declara, rechaza y confirma una transferencia real en API/BD sin simular un abono bancario',async({page,context})=>{
+test('HU32/T25: sube voucher, descarga, rechaza y confirma una transferencia con API y BD reales',async({page,context})=>{
   test.setTimeout(90000)
   const errores:string[]=[]
   page.on('pageerror',error=>errores.push(error.message))
@@ -30,17 +30,21 @@ test('T25: declara, rechaza y confirma una transferencia real en API/BD sin simu
     await expect(formulario).toBeVisible()
     await formulario.getByRole('textbox',{name:'Referencia de la transferencia',exact:true}).fill(referencia)
     await formulario.getByLabel('Fecha de la operación bancaria').fill('2026-01-01')
+    await formulario.getByLabel('Voucher (JPG, PNG o PDF)').setInputFiles({name:'voucher-prueba.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')})
     await formulario.getByRole('checkbox',{name:/Ya realicé la transferencia/}).check()
     const declaracion=participante.waitForResponse(respuesta=>respuesta.request().method()==='POST'&&respuesta.url().endsWith(`/pagos/${pagoId}/transferencias`))
     await formulario.getByRole('button',{name:'Declarar transferencia',exact:true}).click()
     expect((await declaracion).status()).toBe(201)
-    await expect(participante.getByRole('status').filter({hasText:`Transferencia ${referencia} · Pendiente de revisión`})).toBeVisible()
+    await expect(participante.getByRole('status').filter({hasText:`Transferencia ${referencia} · En revisión`})).toBeVisible()
     await participante.reload()
     await expect(participante.getByRole('button',{name:'Pagar con Izipay'})).toBeDisabled()
     await expect(participante.getByRole('heading',{name:'1. Contenido tras transferencia'})).toHaveCount(0)
     await page.goto(`/admin/pagos?pago=${pagoId}`)
     const revision=page.getByRole('region',{name:`Transferencia ${referencia}`,exact:true})
     await expect(revision.getByText('BANCO FICTICIO E2E',{exact:false})).toBeVisible()
+    const descarga=page.waitForEvent('download')
+    await revision.getByRole('button',{name:'Descargar voucher'}).click()
+    expect((await descarga).suggestedFilename()).toBe('voucher.png')
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     if(numero===1) {
       await revision.getByLabel('Motivo del rechazo').fill('No se encuentra el abono en la cuenta de pruebas.')
@@ -56,6 +60,7 @@ test('T25: declara, rechaza y confirma una transferencia real en API/BD sin simu
       await revision.getByRole('button',{name:'Confirmar abono bancario'}).click()
       expect((await confirmacion).status()).toBe(200)
       await expect(page.getByRole('status').filter({hasText:'Pago confirmado'})).toBeVisible()
+      await expect(page.getByText(/Comprobante de pago · Correo pendiente de envío/)).toBeVisible()
     }
   }
   await expect(participante.getByRole('heading',{name:'Pago confirmado',exact:true})).toBeVisible({timeout:10000})

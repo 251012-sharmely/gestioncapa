@@ -288,3 +288,47 @@ cambio de condiciones, carrera entre medios y pago tardío que recupere cupo.
 La referencia declarada no prueba recepción; ADMIN contrasta el extracto bancario.
 La producción requiere migración manual, cuenta institucional, credenciales de comercio
 Izipay, sandbox real y build del usuario. No se activan pagos productivos en esta tarea.
+
+
+## Plan HU-32 — implementación autorizada
+
+Se amplía T-25 con vouchers, correo y retención. El usuario solicita código,
+tablas, backend y frontend y confirmó tres meses y SMTP de prueba local.
+Se conservan las secciones anteriores. Los commits y build los ejecuta el usuario.
+
+| Paso | Resultado verificable | Depende de |
+| --- | --- | --- |
+| H32-P01 | Validadores de archivo, efectivo y configuración SMTP/retención | — |
+| H32-P02 | Migración 0031, subida privada atómica y rechazo temprano de duplicados | P01 |
+| H32-P03 | Decisiones/efectivo con importe y fecha; outbox en la transacción | P02 |
+| H32-P04 | Envío SMTP con PDF, reintentos y eliminación de archivos vencidos | P03 |
+| H32-P05 | Subida/descarga y revisión UI, estados de correo y efectivo | P04 |
+| H32-P06 | Regresión, E2E real, revisión de seguridad y entrega manual | P05 |
+
+Cada incremento escribe primero su prueba, confirma RED y verifica GREEN.
+Se prueba formato/size/IDOR antes de recorrido válido; la revisión financiera
+mantiene bloqueos e idempotencia existentes. Se separan las notificaciones del
+resultado financiero mediante una cola durable; ningún error SMTP cambia dinero.
+La retención se prueba con fechas de BD, sin esperas de meses ni datos personales.
+Límites: 5 MiB, JPG/PNG/PDF, descarga autenticada como adjunto, tres meses calendario.
+Las pruebas no ejecutan build, correo externo ni operaciones bancarias.
+
+### Entrega HU-32 para revisión y Git manual
+
+Los seis pasos están implementados y verificados localmente; no se ejecutan commits.
+Secuencia sugerida de commits manuales, revisando los hunks compartidos:
+
+1. `feat: validar vouchers y configurar correo seguro` — validación/configuración y pruebas.
+2. `feat: guardar vouchers privados con referencias únicas` — migración, archivo privado y descarga/reposición.
+3. `feat!: registrar efectivo completo y revisar vouchers` — API, decisiones, monto/fecha, auditoría y regresión histórica.
+4. `feat: enviar comprobantes y eliminar vouchers vencidos` — outbox, SMTP, proceso y pruebas reales locales.
+5. `feat: permitir subir y revisar vouchers desde las pantallas` — cliente, vistas, descarga y E2E.
+6. `docs: registrar operación y preparación de HU-32` — API, guía, especificación y resultados.
+
+Cada corte debe incluir sus dependencias y pruebas; no se presentan como commits
+ya creados. Base local `v3.0.0.0.0`; propuesta para la entrega completa `v4.0.0.0.0`
+por el contrato incompatible de nuevas transferencias/efectivo. No modificar npm
+version ni asignar una versión de publicación por archivo/commit.
+
+Gate pendiente de publicación: build manual, aprobación humana, migración y backup
+ensayados en staging, banco/SMTP reales y política de copias. No publicar ni hacer push.

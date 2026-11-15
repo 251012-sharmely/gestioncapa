@@ -8,6 +8,9 @@ import { pool } from '../../src/shared/database.js';
 import { redis } from '../../src/shared/redis.js';
 import { migrar } from '../../src/shared/migraciones.js';
 import { vencerReservas } from '../../src/modules/cursos/inscripciones.vencimiento.js';
+import { crearPdfTexto } from '../../src/shared/pdf.js';
+
+const voucher={tipo:'application/pdf',contenidoBase64:crearPdfTexto('Voucher ficticio',['Solo pruebas locales.']).toString('base64')};
 
 let app:FastifyInstance;
 const usuarios=new Map<string,{id:string;token:string}>();
@@ -50,7 +53,7 @@ async function preparar() {
 }
 async function declarar(caso:Awaited<ReturnType<typeof preparar>>) {
   const {destinoId,referencia,fechaOperacion}=caso;
-  const respuesta=await llamar('alumno','POST',`/api/pagos/${caso.pagoId}/transferencias`,{destinoId,referencia,fechaOperacion,clave:randomUUID()});
+  const respuesta=await llamar('alumno','POST',`/api/pagos/${caso.pagoId}/transferencias`,{destinoId,referencia,fechaOperacion,clave:randomUUID(),voucher});
   assert.equal(respuesta.statusCode,201,respuesta.body);
   return respuesta.json().operacionId as string;
 }
@@ -72,7 +75,7 @@ test('T25-I02/04: privacidad, destino persistido y permisos reales; declarar no 
   assert.ok(caso.destinoId);
   assert.equal((await llamar(null,'GET',ruta)).statusCode,401);
   assert.equal((await llamar('otro','GET',ruta)).statusCode,403);
-  const entrada={destinoId:caso.destinoId,referencia:caso.referencia,fechaOperacion:caso.fechaOperacion,clave:randomUUID()};
+  const entrada={destinoId:caso.destinoId,referencia:caso.referencia,fechaOperacion:caso.fechaOperacion,clave:randomUUID(),voucher};
   assert.equal((await llamar('otro','POST',`${ruta}/transferencias`,entrada)).statusCode,403);
   assert.equal((await llamar('docente','POST',`${ruta}/transferencias`,entrada)).statusCode,403);
   assert.equal((await llamar('alumno','POST',`${ruta}/transferencias`,{...entrada,fechaOperacion:'2999-01-01'})).statusCode,422);
@@ -81,7 +84,7 @@ test('T25-I02/04: privacidad, destino persistido y permisos reales; declarar no 
   assert.equal(consulta.headers['cache-control'],'private, no-store');
   assert.equal(consulta.json().estado,'PENDIENTE');assert.equal(consulta.json().transferencias[0].operacionId,op);
   assert.equal((await llamar('alumno','GET',`/api/cursos/${caso.cursoId}`)).json().estadoInscripcion,'PENDIENTE_PAGO');
-  assert.equal((await llamar('admin','POST',`${ruta}/efectivo`,{referencia:'CAJA-BLOQUEADA'})).statusCode,409);
+  assert.equal((await llamar('admin','POST',`${ruta}/efectivo`,{referencia:'CAJA-BLOQUEADA',importeCentimos:15050,fechaRecepcion:'2026-01-01'})).statusCode,409);
 });
 
 test('T25-I05/06: ADMIN confirma y aplica el acceso; rechaza roles y recepción no verificada',async()=>{
@@ -130,12 +133,15 @@ test('T25-I05: carreras entre cursos no reutilizan abono y la confirmación orig
   const casos=await Promise.all([preparar(),preparar()]);
   const referencia=`ABONO-COMPARTIDO-${randomUUID()}`;
   casos.forEach(caso=>{caso.referencia=referencia});
-  const operaciones=await Promise.all(casos.map(declarar));
-  const rutas=casos.map((caso,indice)=>`/api/pagos/${caso.pagoId}/transferencias/${operaciones[indice]}/revision`);
-  const respuestas=await Promise.all(casos.map((caso,indice)=>llamar('admin','POST',rutas[indice]!,confirmar(caso))));
-  assert.deepEqual(respuestas.map(respuesta=>respuesta.statusCode).sort(),[200,409]);
-  const ganador=respuestas.findIndex(respuesta=>respuesta.statusCode===200);
-  assert.equal((await llamar('admin','POST',rutas[ganador]!,confirmar(casos[ganador]!))).statusCode,200);
+  const respuestas=await Promise.all(casos.map(caso=>llamar('alumno','POST',`/api/pagos/${caso.pagoId}/transferencias`,{destinoId:caso.destinoId,referencia,fechaOperacion:caso.fechaOperacion,clave:randomUUID(),voucher})));
+  assert.deepEqual(respuestas.map(respuesta=>respuesta.statusCode).sort(),[201,409]);
+  const ganador=respuestas.findIndex(respuesta=>respuesta.statusCode===201);
+  const operacionId=respuestas[ganador]!.json().operacionId;
+  const ruta=`/api/pagos/${casos[ganador]!.pagoId}/transferencias/${operacionId}/revision`;
+  assert.equal((await llamar('admin','POST',ruta,confirmar(casos[ganador]!))).statusCode,200);
+  assert.equal((await llamar('admin','POST',ruta,confirmar(casos[ganador]!))).statusCode,200);
+  const perdedor=casos[1-ganador]!;
+  assert.equal((await pool.query('select 1 from "operacionesPago" where "pagoId"=$1',[perdedor.pagoId])).rowCount,0);
 });
 
 test('T25-I04: no entrega sesión Izipay recuperada ni nueva si ya se declaró transferencia',async()=>{

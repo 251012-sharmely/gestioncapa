@@ -69,11 +69,14 @@ test('T25-I05/06: solo ADMIN confirma el importe completo una vez y audita',asyn
 test('T25-I05: un abono no paga dos deudas y el original sigue siendo idempotente',async()=>{
   const referencia=`BANCO-${randomUUID()}`;
   const casos=await Promise.all([preparar(referencia),preparar(referencia)]);
-  const operaciones=await Promise.all(casos.map(({pago,entrada})=>declararTransferencia(pago.id,alumno,entrada)));
-  const resultados=await Promise.allSettled(casos.map(({pago},indice)=>revisarTransferencia(pago.id,operaciones[indice]!.id,admin,confirmar(referencia))));
+  const resultados=await Promise.allSettled(casos.map(({pago,entrada})=>declararTransferencia(pago.id,alumno,entrada)));
   assert.equal(resultados.filter(resultado=>resultado.status==='fulfilled').length,1);
+  const rechazado=resultados.find(resultado=>resultado.status==='rejected');
+  assert.ok(rechazado?.status==='rejected');assert.equal(rechazado.reason.code,'OPERACION_BANCARIA_REPETIDA');
   const ganador=resultados.findIndex(resultado=>resultado.status==='fulfilled');
-  assert.equal(await revisarTransferencia(casos[ganador]!.pago.id,operaciones[ganador]!.id,admin,confirmar(referencia)),'CONFIRMADO');
+  const operacion=resultados[ganador]!;assert.ok(operacion.status==='fulfilled');
+  assert.equal(await revisarTransferencia(casos[ganador]!.pago.id,operacion.value.id,admin,confirmar(referencia)),'CONFIRMADO');
+  assert.equal(await revisarTransferencia(casos[ganador]!.pago.id,operacion.value.id,admin,confirmar(referencia)),'CONFIRMADO');
 });
 
 test('T25-I06: rechazo conserva motivo y destino original; no se confirma después',async()=>{

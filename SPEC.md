@@ -844,3 +844,150 @@ La ampliación cambia el nivel de entrega: nuevos cargos Culqi dejan de aceptars
 por elección del usuario, por lo que corresponde **Mayor** para consumidores de
 esa API. Base local `v2.0.0.1.0`; propuesta condicional para la entrega conjunta con
 HU-53 ya presente: `v3.0.0.0.0`. No se modifican versiones ni etiquetas.
+
+
+# HU-32: Pago por transferencia BCP y en efectivo
+
+Implementación solicitada expresamente tras T-25. Base: `9cc8510`, etiqueta local
+`v3.0.0.0.0`. Se conserva todo el trabajo previo. El usuario confirmó retención de
+tres meses y SMTP configurable con pruebas locales. Se continúa con código sin
+otro ciclo de autorización documental; Git y build permanecen manuales.
+
+## Objetivo, capacidades y caso de uso
+
+El participante ve cuenta institucional, importe congelado y orden; adjunta voucher
+JPG/PNG/PDF y referencia, queda en revisión y recibe el resultado por correo.
+ADMIN verifica el abono real, aprueba/rechaza y registra efectivo con importe/fecha.
+El archivo se elimina tras su plazo y se conserva la trazabilidad financiera.
+
+| Capacidad | Responsabilidad | Depende de |
+| --- | --- | --- |
+| voucher-pago | Carga privada, unicidad de operación, descarga y revisión | Pagos T-25/HU-53 |
+| comprobante-correo | Recibo PDF, correo de rechazo y cola SMTP durable | Decisión financiera |
+| retencion-voucher | Eliminar contenido tras tres meses; conservar metadatos | Archivo/revisión |
+
+Orden: contrato/validación → persistencia y carga → decisiones/efectivo y outbox →
+SMTP/retención → UI y recorridos reales. Son extensiones del módulo de pagos.
+
+## Aceptación verificable
+
+- H32-01: cuenta/CCI/titular institucional configurados, importe PEN y código de
+  orden visibles antes de subir; no se inventan cuentas BCP ni se cobra comisión.
+- H32-02: voucher JPG, PNG o PDF de hasta 5 MiB validado por firma y tamaño; datos
+  binarios privados en PostgreSQL, como los materiales existentes. Subida y
+  declaración se guardan atómicamente; la UI muestra «En revisión» y no confirma dinero.
+- H32-03: número de operación normalizado único entre vouchers, desde la subida,
+  incluidos rechazados y archivos eliminados. Se rechaza reutilización aunque cambie
+  fecha o cuenta; reintentar la misma clave y carga conserva la operación original.
+- H32-04: solo propietario/ADMIN descargan, sin caché pública ni rutas de archivos
+  suministradas por cliente. HTML/SVG/archivos fuera de límite se rechazan.
+- H32-05: ADMIN activo contrasta importe completo, moneda, fecha, referencia y cuenta;
+  aprobación conserva reglas HU-53 y genera comprobante PDF por correo; rechazo
+  exige motivo y genera notificación. No confirma un voucher vencido/eliminado.
+- H32-06: efectivo exige importe y fecha en la API/UI; importe debe coincidir con
+  la deuda y fecha no futura. Se conservan recepción, actor, referencia y auditoría.
+- H32-07: eventos de correo quedan en cola en la misma transacción del pago/decisión.
+  Fallo SMTP no revierte dinero ni se declara enviado: reintentos y estado visible.
+  Message-ID estable y exclusión de trabajadores; SMTP no garantiza entrega exactamente una vez.
+- H32-08: tres meses calendario desde aprobación o rechazo; sin revisión, desde
+  subida. El plazo se congela por archivo. Se elimina el contenido, se conserva
+  hash/tamaño/operación/decisión y descarga posterior devuelve 410.
+- H32-09: preservar pagos tardíos, exclusión entre medios, historial, idempotencia
+  y conciliación de doble ingreso de T-25; no habilitar cupo vencido ni doble entrega.
+
+Los tres meses son política acordada del CPPP, no un plazo atribuido a la Ley 29733.
+Backups/replicas y retención del registro financiero deben formar parte de la
+política operativa; borrar contenido activo no acredita por sí solo eliminación de backups.
+
+## Estructura, contratos y estilo
+
+TypeScript/Fastify/Zod/pg; React/TanStack Query; Node test, Vitest y Playwright.
+Migraciones nuevas desde 0031, sin editar las 0001–0030. Módulos y tests de pago
+existentes se amplían con archivos para validación de voucher, cola SMTP y retención.
+Se reutiliza JSON/base64 de los materiales existentes; no se añade multipart.
+La API de nuevas transferencias requiere voucher; las declaraciones históricas
+siguen consultables y revisables. Datos de efectivo se validan además del servidor.
+
+Funciones/variables camelCase, tipos/componentes PascalCase, nombres nuevos sin
+guiones bajos. Ejemplo: `const archivo = Buffer.from(contenidoBase64, 'base64');`.
+Validación estricta, consultas parametrizadas e importes en céntimos. Archivos se
+sirven como adjuntos con MIME conocido y protección nosniff; nunca como HTML del sitio.
+
+## Comandos y pruebas
+
+- `npm run test -w backend`; `npm run test:integracion -w backend` con PostgreSQL/Redis temporales.
+- `npm run test -w frontend`; `npm run lint -w frontend`.
+- `npm run typecheck -w backend`.
+- `npm exec -w frontend -- tsc -p tsconfig.app.json --noEmit` y
+  `npm exec -w frontend -- tsc -p tsconfig.node.json --noEmit`.
+- `npm run e2e:tipos`; `npm run e2e:real -- e2e/prb/real/transferenciaPago.spec.ts e2e/prb/real/cobroCurso.spec.ts`.
+- `git diff --check`. Build `npm run build`: solo ejecución manual del usuario.
+
+RED/GREEN por incremento. Pruebas prioritarias: formatos falsificados, tamaño,
+IDOR, referencias duplicadas/concurrentes, repetición, rol inactivo, aprobación
+sin archivo vigente, borrado con pago intacto, SMTP rechazado y éxito local con PDF.
+Ninguna prueba envía correo a destinatarios reales ni mueve dinero bancario.
+
+## Fronteras y publicación
+
+Siempre validar archivos/propiedad, limitar cuerpos, evitar datos privados en logs,
+conservar finanzas y proteger secretos SMTP. El usuario ya autorizó archivos,
+tablas e integración SMTP necesarios para esta historia. No acceder a cuentas de
+correo, afiliar servicios, configurar datos bancarios reales, hacer push o publicar.
+SMTP productivo requiere TLS y credenciales propias; el transporte sin TLS solo
+se permite a loopback en pruebas. Las notificaciones se guardan con SMTP apagado.
+
+Pendientes externos: cuenta BCP, SMTP remitente/credenciales, backup/retención,
+build y revisión humanos. El envío SMTP se probará contra un servidor local.
+
+### Precisiones de integridad tras la revisión
+
+La clave bancaria elimina separadores y se reserva también para referencias
+históricas, sin crear vouchers ficticios. Duplicados históricos se conservan como
+conflictos y bloquean nuevas asignaciones. La subida usa la misma transacción de
+declaración. Reponer un archivo vencido solo se permite en su trámite pendiente
+original, con versión nueva e historial de hashes; no reasigna la referencia a
+otra solicitud. ADMIN puede rechazar el trámite con motivo para cerrar la revisión.
+El efectivo compara importe y fecha incluso en reintentos con referencia conocida.
+
+### Resultado de implementación y revisión HU-32
+
+Implementados H32-01–H32-09 en tablas, API, trabajador y frontend. La guía operativa
+está en [pagosTransferenciaEfectivo.md](docs/esp/pagosTransferenciaEfectivo.md) y los
+contratos actualizados en [API.md](docs/API.md#hu-32--vouchers-privados-y-comprobantes-por-correo).
+
+La revisión interna adversaria corrigió reserva de referencias históricas,
+normalización, recuperación de evidencia pendiente vencida y replay de efectivo.
+La revisión del código corrigió plazo configurable fuera de los tres meses acordados,
+Message-ID inestable al rotar remitente y envío SMTP que podía superar su lease:
+ahora se cancela en un máximo de 60 s frente a un lease de 120 s. Se verificó con
+SMTP local rechazado, concurrente y sin respuesta, con datos ficticios y sin mover dinero bancario.
+El tercer ciclo de revisión no encontró defectos adicionales en esas correcciones.
+Se respetó la preferencia del usuario por revisión interna sin otro modelo.
+
+Se simplificó el acceso tipado a configuración, se quitaron imports introducidos
+sin uso y se compartió la condición de refresco de pagos/correos entre las vistas.
+La mutación temporal de la validación de referencia fue detectada por sus pruebas;
+el archivo se restauró y esas pruebas volvieron a verde.
+
+Verificación final local: 324 unitarias backend, 326 integración PostgreSQL/Redis,
+78 Vitest, 3 servidor frontend y 32 E2E Chromium aprobados, sin omisiones: 763 casos.
+Tipos backend/frontend/E2E y formato del diff aprobados. Lint sin errores, con los
+dos avisos preexistentes de pdfTexto/CursosPagina. Auditoría npm: cero vulnerabilidades;
+firmas/procedencia auditadas sin registros inválidos ni ausentes. La política previa
+sin lockfile no permite acreditar una instalación congelada reproducible.
+
+La migración se probó desde 0030 con referencias históricas únicas y duplicadas:
+preserva declaraciones, reserva conflictos y no fabrica archivos. Se probaron
+IDOR, descarga 410, reemplazo versionado, rol inactivo, duplicados concurrentes,
+retención con pago intacto, efectivo y liberación de acceso/constancia.
+
+DoD y Security Checklist revisados: funcionalidad y controles locales verificados;
+quedan build manual, aprobación humana, migración en staging/productivo, cuenta BCP,
+SMTP real, alertas operativas y política de eliminación en MVCC/WAL/backups/réplicas.
+No se declara cumplimiento legal completo ni publicación. No hay cambios de
+versiones, commits, etiquetas o push por el agente.
+
+Versión de esta ampliación: base local verificada `v3.0.0.0.0` (`9cc8510`), propuesta
+condicional `v4.0.0.0.0` por exigir voucher y monto/fecha a consumidores anteriores
+de la API. Mensaje propuesto: `feat!: implementar vouchers, efectivo y comprobantes`.

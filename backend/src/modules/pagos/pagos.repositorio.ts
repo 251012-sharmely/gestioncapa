@@ -2,6 +2,10 @@ import { randomUUID, createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../shared/database.js';
 import { ErrorPago, type Pago, type OperacionPago, type DeclaracionTransferencia } from './pagos.modelo.js';
+import { reservarReferenciaTransferencia,guardarVoucher } from './pagos.archivos.js';
+import type { ArchivoVoucher,RecepcionEfectivo } from './pagos.voucher.js';
+import { env } from '../../config/env.js';
+import { encolarAvisoPago } from './pagos.avisos.js';
 
 const columnasPago = `id::text,"cursoId"::text,"usuarioId"::text,"intentoId",concepto,"importeCentimos"::float8,moneda,estado,medio,"pagadoEn"::text`;
 const columnasOperacion = `id,numero::text,"pagoId"::text,medio,clave,"cargaHash",estado,"referenciaExterna",entorno`;
@@ -30,7 +34,7 @@ export async function conPago<T>(id: string, trabajo: (cliente: PoolClient, pago
   }
   finally { cliente.release(); }
 }
-export async function iniciarOperacion(pagoId: string, usuarioId: number, entrada: { medio: 'IZIPAY'|'CULQI'|'TRANSFERENCIA'; clave: string; cargaHash: string; entorno?:'sandbox'|'produccion'; transferencia?:DeclaracionTransferencia }) {
+export async function iniciarOperacion(pagoId: string, usuarioId: number, entrada: { medio: 'IZIPAY'|'CULQI'|'TRANSFERENCIA'; clave: string; cargaHash: string; entorno?:'sandbox'|'produccion'; transferencia?:DeclaracionTransferencia; voucher?:ArchivoVoucher }) {
   return conPago(pagoId, async (cliente,pago) => {
     if (String(pago.usuarioId) !== String(usuarioId)) throw new ErrorPago(403,'SIN_PERMISO','No tienes permiso para este pago.');
     if (!(await cliente.query(`select id from users where id=$1 and active and role='agremiado' for share`,[usuarioId])).rowCount) throw new ErrorPago(403,'SIN_PERMISO','El participante no está disponible.');
@@ -54,7 +58,9 @@ export async function iniciarOperacion(pagoId: string, usuarioId: number, entrad
     [randomUUID(),pagoId,entrada.medio,entrada.clave,entrada.cargaHash,entrada.entorno??'sandbox',entrada.medio==='TRANSFERENCIA'?'DECLARADO':'INICIADO'])).rows[0]!;
     if (entrada.medio==='TRANSFERENCIA') {
       const transferencia=entrada.transferencia!;
+      await reservarReferenciaTransferencia(cliente,op.id,transferencia.referencia);
       await cliente.query(`insert into "transferenciasPago"("operacionId","destinoId",referencia,"fechaOperacion") values($1,$2,$3,$4)`,[op.id,transferencia.destinoId,transferencia.referencia,transferencia.fechaOperacion]);
+      if(entrada.voucher) await guardarVoucher(cliente,op.id,usuarioId,entrada.voucher,entrada.clave,env.voucherRetencionMeses);
       await cliente.query(`insert into "auditoriaPagos"("pagoId","actorId",accion,"operacionId") values($1,$2,'DECLARAR_TRANSFERENCIA',$3)`,[pagoId,usuarioId,op.id]);
     }
     return { ...op,nueva:true };
@@ -90,6 +96,7 @@ export async function guardarHecho(cliente: PoolClient, pago: Pago, op: Operacio
   await cliente.query(`update "operacionesPago" set estado='CONFIRMADO',"referenciaExterna"=coalesce("referenciaExterna",$2),"actualizadoEn"=clock_timestamp() where id=$1`,[op.id,hecho.referencia]);
   await cliente.query(`update "obligacionesPago" set estado='PAGADO',medio=$2,"pagadoEn"=clock_timestamp() where id=$1 and estado='PENDIENTE'`,[pago.id,op.medio]);
   await cliente.query(`insert into "auditoriaPagos"("pagoId","actorId",accion,"operacionId") values($1,$2,'CONFIRMAR',$3)`,[pago.id,actorId,op.id]);
+  await encolarAvisoPago(cliente,pago,op.id,'COMPROBANTE');
   return 'CONFIRMADO' as const;
 }
 export async function confirmarOperacion(id: string, hecho: { referencia: string; importeCentimos: number; moneda: string }) {
@@ -113,16 +120,24 @@ export async function conservarRespuestaMultiple(id:string,hechos:{referencia:st
 export async function cambiarEstadoOperacion(id: string, estado: 'INCIERTO'|'RECHAZADO') {
   await pool.query(`update "operacionesPago" set estado=$2,"actualizadoEn"=clock_timestamp() where id=$1 and estado<>'CONFIRMADO'`,[id,estado]);
 }
-export async function registrarEfectivo(pagoId: string, actorId: number, referencia: string) {
+export async function registrarEfectivo(pagoId: string, actorId: number, referencia: string, datos?:Pick<RecepcionEfectivo,'importeCentimos'|'fechaRecepcion'>) {
   return conPago(pagoId, async (cliente,pago) => {
     if (!(await cliente.query(`select id from users where id=$1 and role='admin' and active for share`,[actorId])).rowCount) throw new ErrorPago(403,'SIN_PERMISO','No tienes permiso para registrar efectivo.');
-    const anterior = (await cliente.query(`select "pagoId"::text as "pagoId" from "hechosPago" where medio='EFECTIVO' and referencia=$1`,[referencia])).rows[0];
-    if (anterior?.pagoId === pagoId) return;
+    if(datos&&datos.importeCentimos!==pago.importeCentimos) throw new ErrorPago(409,'IMPORTE_INVALIDO','El importe debe coincidir con el importe completo pendiente.');
+    const fecha=datos?.fechaRecepcion??(await cliente.query('select current_date::text as fecha')).rows[0].fecha as string;
+    if(!(await cliente.query('select $1::date<=current_date as valida',[fecha])).rows[0].valida) throw new ErrorPago(422,'FECHA_INVALIDA','La fecha de recepción no puede estar en el futuro.');
+    const anterior = (await cliente.query(`select h."pagoId"::text as "pagoId",r."fechaRecepcion"::text as fecha,r."importeCentimos"::float8 as importe
+      from "hechosPago" h left join "recepcionesEfectivo" r on r."operacionId"=h."operacionId" where h.medio='EFECTIVO' and h.referencia=$1`,[referencia])).rows[0];
+    if (anterior?.pagoId === pagoId) {
+      if(datos&&(anterior.fecha!==fecha||anterior.importe!==datos.importeCentimos)) throw new ErrorPago(409,'REFERENCIA_REUTILIZADA','La referencia corresponde a otra fecha o importe.');
+      return;
+    }
     if (anterior) throw new ErrorPago(409,'REFERENCIA_REUTILIZADA','La referencia ya se utilizó.');
     if ((await cliente.query('select 1 from "incidenciasPago" where "pagoId"=$1 limit 1',[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_CONCILIACION','Existe una incidencia financiera pendiente de revisión.');
     if (pago.estado === 'PAGADO' || (await cliente.query(`select 1 from "operacionesPago" where "pagoId"=$1 and estado in ('INICIADO','INCIERTO','DECLARADO')`,[pagoId])).rowCount) throw new ErrorPago(409,'PAGO_EN_PROCESO','El pago está confirmado o tiene una operación en proceso.');
     const op = (await cliente.query<OperacionPago>(`insert into "operacionesPago"(id,"pagoId",medio,clave,"cargaHash") values($1,$2,'EFECTIVO',$3,$4) returning ${columnasOperacion}`,
     [randomUUID(),pagoId,randomUUID(),createHash('sha256').update(referencia).digest('hex')])).rows[0]!;
+    await cliente.query('insert into "recepcionesEfectivo"("operacionId","importeCentimos","fechaRecepcion") values($1,$2,$3)',[op.id,pago.importeCentimos,fecha]);
     await guardarHecho(cliente,pago,op,{ referencia, importeCentimos:pago.importeCentimos, moneda:pago.moneda },actorId);
   });
 }
