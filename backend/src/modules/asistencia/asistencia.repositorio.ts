@@ -6,7 +6,8 @@ const ISO_LIMA = `'YYYY-MM-DD"T"HH24:MI:SS"-05:00"'`;
 
 export async function estaInscrito(claseId: number, usuarioId: number, consultor: Consultor = pool) {
   const resultado = await consultor.query(
-    "select 1 from enrollments where class_id = $1 and user_id = $2 for key share",
+    `select 1 from enrollments e join classes c on c.id=e.class_id where e.class_id=$1 and e.user_id=$2
+      and (c.curso_id is null or "tieneAccesoCurso"(c.curso_id,$2)) for key share of e`,
     [claseId, usuarioId]
   );
   return resultado.rowCount === 1;
@@ -75,7 +76,7 @@ export async function clasesDeParticipante(usuarioId: number) {
      join classes c on c.id = e.class_id
      join users i on i.id = c.instructor_id
      left join attendances a on a.class_id = e.class_id and a.user_id = e.user_id
-     where e.user_id = $1
+     where e.user_id = $1 and (c.curso_id is null or "tieneAccesoCurso"(c.curso_id,$1))
      order by c.fecha, c.hora_inicio, c.id`,
     [usuarioId]
   );

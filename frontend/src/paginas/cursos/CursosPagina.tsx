@@ -9,7 +9,7 @@ import { Entrada, Selector } from '@/components/ui/Entrada'
 import { Cargando, ErrorCarga } from '@/components/ui/Estados'
 import { mensajeDeError } from '@/lib/api'
 import { cursos, type Curso, type CursoPublico } from '@/servicios/cursos'
-import { costoCurso, cuposCurso, ETIQUETA_MODALIDAD, fechasCurso } from './formatoCurso'
+import { condicionesCobro, cuposCurso, ETIQUETA_MODALIDAD, fechasCurso } from './formatoCurso'
 import { DatoCurso, EtiquetasCurso } from './presentacion'
 
 const modalidades = { PRESENCIAL: 'Presencial', VIRTUAL: 'Virtual', HIBRIDA: 'Híbrida' }
@@ -25,7 +25,7 @@ function TarjetaCurso({ curso, editable = false }: { curso: Curso; editable?: bo
     <p className="text-sm">Instructor: {curso.instructorNombre}</p>
     <p className="text-sm"><FechasCurso curso={curso} /></p>
     <p className="text-sm">{curso.horasLectivas} horas lectivas · {modalidades[curso.modalidad]}</p>
-    <p className="text-sm">{curso.costo === 0 ? 'Gratis' : `S/ ${curso.costo.toFixed(2)}`}</p>
+    <p className="text-sm">{condicionesCobro(curso)}</p>
     <p className={`text-sm font-semibold ${curso.cuposDisponibles === 0 ? 'text-danger' : 'text-ink'}`}>{curso.cuposDisponibles === 0 ? 'Sin cupos' : `${curso.cuposDisponibles} cupos disponibles`}</p>
     {curso.inscrito && <p className="text-sm font-semibold text-success">Ya estás inscrito(a)</p>}
     <p className="text-sm text-muted">{curso.estado === 'BORRADOR' ? 'Borrador' : 'Publicado'}</p>
@@ -127,7 +127,7 @@ function TarjetaCatalogo({ curso, publico }: { curso: CursoPublico & { inscrito?
       <p className="flex items-center gap-2 text-sm text-muted"><Calendar className="size-4 shrink-0 text-brand" aria-hidden />{fechasCurso(curso)}</p>
       <dl className="flex flex-col gap-1.5">
         <DatoCurso termino="Horas">{curso.horasLectivas} horas lectivas</DatoCurso>
-        <DatoCurso termino="Costo">{costoCurso(curso.costo)}</DatoCurso>
+        <DatoCurso termino="Cobro">{condicionesCobro(curso)}</DatoCurso>
         <DatoCurso termino="Cupos" alerta={curso.cuposDisponibles === 0}>{cuposCurso(curso)}</DatoCurso>
       </dl>
     </div>

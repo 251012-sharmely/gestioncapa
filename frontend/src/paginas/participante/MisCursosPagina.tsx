@@ -7,9 +7,10 @@ import { Etiqueta } from '@/components/ui/Etiqueta'
 import { mensajeDeError } from '@/lib/api'
 import { rangoFechasCorto } from '@/lib/formato'
 import { CERTIFICADOS_CURSO } from '@/servicios/cursos'
-import { historiales, type Historial } from '@/servicios/historial'
+import { historiales, intervaloEntrega, type Historial } from '@/servicios/historial'
 import { AvisoProgreso, Avance } from '../historial/HistorialPagina'
 import { queTeFalta } from '../historial/progreso'
+import { IntentosAnteriores } from '../historial/IntentosAnteriores'
 
 type CursoInscrito = Historial['cursos'][number]
 
@@ -24,7 +25,8 @@ const enlaceSecundario =
 export function MisCursosPagina() {
   const { usuario } = useAuth()
   const id = usuario?.id ?? ''
-  const consulta = useQuery({ queryKey: ['historial', usuario?.id, id], queryFn: () => historiales.obtener(id), enabled: !!id, retry: false })
+  const consulta = useQuery({ queryKey: ['historial', usuario?.id, id], queryFn: () => historiales.obtener(id), enabled: !!id, retry: false,
+    refetchInterval: query => intervaloEntrega(query.state.data) })
 
   return (
     <div className="mx-auto flex max-w-160 flex-col gap-4 px-4 pt-6 pb-8 wrap-anywhere sm:max-w-200 sm:pt-10">
@@ -77,7 +79,7 @@ function TarjetaCurso({ curso }: { curso: CursoInscrito }) {
             {curso.titulo}
           </Link>
         </h2>
-        {curso.estado === 'PENDIENTE_PAGO' ? <Etiqueta tono="advertencia">Pendiente de pago</Etiqueta> : <>
+        {curso.estado==='CANCELADA'?<Etiqueta tono="advertencia">Reserva cancelada</Etiqueta>:curso.estado === 'PENDIENTE_PAGO' ? <Etiqueta tono="advertencia">Pendiente de pago</Etiqueta> : <>
           {curso.pagoPendiente && <Etiqueta tono="advertencia">Pendiente de pago</Etiqueta>}
           <Etiqueta tono={terminado ? 'exito' : 'marca'}>{terminado ? 'Terminado' : 'En curso'}</Etiqueta>
         </>}
@@ -90,6 +92,8 @@ function TarjetaCurso({ curso }: { curso: CursoInscrito }) {
       )}
       <Avance asistencia={curso.asistencia} />
       <AvisoProgreso aviso={queTeFalta(curso)} />
+      <IntentosAnteriores intentos={curso.intentosAnteriores} />
+      {curso.estadoEntrega==='RETENIDA' && <p className="text-sm">{curso.estadoFinanciero==='PAGADO'?'Pago confirmado. Constancia en preparación.':'Constancia retenida hasta confirmar el pago.'} <Link className="font-semibold text-brand underline" to={`/cursos/${curso.id}`}>Consultar curso y pago</Link></p>}
       {certificado && (
         <p className="flex flex-wrap items-center gap-2 rounded-lg bg-brand-soft px-3 py-2.5 text-sm text-brand">
           <span className="font-semibold">Obtuviste tu {CERTIFICADOS_CURSO[certificado.tipo].toLowerCase()}.</span>

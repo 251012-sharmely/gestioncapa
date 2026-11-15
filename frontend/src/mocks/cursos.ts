@@ -49,7 +49,7 @@ function disponibilidad(curso: DetalleCurso, usuarioId?: string): DetalleCurso {
   const estadoInscripcion = inscrito
     ? estadosInscripcionDemo.get(`${curso.id}:${usuarioId}`) ?? (usuarioId === 'p-1' && curso.titulo === 'Demo · Seguridad y primeros auxilios' ? 'TERMINADO' : 'EN_CURSO')
     : null
-  return { ...curso, estadoInscripcion, sesiones: sesionesDe(curso.id), cuposDisponibles: Math.max(0, curso.cupos - inscritos.size), inscrito }
+  return { ...curso,versionCobro:curso.versionCobro??1,estadoInscripcion, sesiones: sesionesDe(curso.id), cuposDisponibles: Math.max(0, curso.cupos - inscritos.size), inscrito }
 }
 
 const archivos = demo.archivos
@@ -75,6 +75,8 @@ export const sesionesDeCurso = sesionesDe
 const titulo = z.string().trim().min(1).max(160)
 const fechaOpcional = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => { const d = new Date(`${v}T00:00:00Z`); return v.slice(0,4) !== '0000' && Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === v }).nullable().default(null)
 const esquema = z.object({
+  modalidadCobro: z.enum(['PREVIO', 'CERTIFICADO', 'GRATUITO']).optional(),
+  plazoPagoMinutos: z.number().int().min(1).max(525600).nullable().optional(),
   categoria: z.string().trim().min(1).max(80).default('General'),
   fechaInicio: fechaOpcional, fechaFin: fechaOpcional,
   titulo, descripcion: z.string().trim().max(5000).default(''), instructorId: z.string(),
@@ -89,7 +91,8 @@ function resumenPublico(curso: DetalleCurso) {
   const { id, titulo, descripcion, instructorNombre, horasLectivas, modalidad, costo, cupos,
     cuposDisponibles, categoria, fechaInicio, fechaFin } = curso
   return { id, titulo, descripcion, instructorNombre, horasLectivas, modalidad, costo, cupos,
-    cuposDisponibles, categoria, fechaInicio, fechaFin }
+    cuposDisponibles, categoria, fechaInicio, fechaFin, modalidadCobro: curso.modalidadCobro ?? (costo === 0 ? 'GRATUITO' : null),
+    plazoPagoMinutos: curso.plazoPagoMinutos ?? null, versionCobro: curso.versionCobro ?? 1 }
 }
 function catalogoPaginado(request: Request, publico = false, usuarioId = '') {
   const consulta = z.object({ buscar: z.string().trim().max(160).default(''), categoria: z.string().min(1).max(80).optional(), modalidad: z.enum(['PRESENCIAL','VIRTUAL','HIBRIDA']).optional(), pagina: z.coerce.number().int().min(1).max(100000).default(1), tamanoPagina: z.coerce.number().int().min(1).max(50).default(6) }).strict().safeParse(Object.fromEntries(new URL(request.url).searchParams))
@@ -110,6 +113,19 @@ function alcanceCertificacion(curso: DetalleCurso) {
 export const estadosInscripcionDemo = new Map<string, 'EN_CURSO' | 'PENDIENTE_PAGO'>()
 
 export const handlersCursos = [
+  http.patch(`${API}/cursos/:id/cobro`, async ({ request, params }) => {
+    const auth = acceso(request, ['ADMIN']); if (auth.fallo) return auth.fallo
+    const curso = cursosSimulados.find(c => c.id === params.id)
+    if (!curso) return error(404, 'El curso no existe.')
+    const entrada = z.object({ modalidadCobro: z.enum(['PREVIO', 'CERTIFICADO', 'GRATUITO']), costo: z.number().min(0).max(9999999999.99).multipleOf(0.01),
+      plazoPagoMinutos: z.number().int().min(1).max(525600).nullable(), versionCobro: z.number().int().positive() }).strict().safeParse(await request.json())
+    if (!entrada.success) return error(422, 'Revisa las condiciones de cobro.')
+    const datos = entrada.data
+    if ((datos.modalidadCobro === 'GRATUITO') !== (datos.costo === 0) || (datos.modalidadCobro === 'PREVIO') !== (datos.plazoPagoMinutos !== null)) return error(422, 'Revisa el importe y el plazo.')
+    if (curso.estado === 'CERRADO' || datos.versionCobro !== (curso.versionCobro ?? 1)) return error(409, 'El curso está cerrado o sus condiciones cambiaron.')
+    Object.assign(curso, datos, { versionCobro: datos.versionCobro + 1 })
+    return HttpResponse.json(curso)
+  }),
   http.get(`${API}/cursos/instructores`, ({ request }) => {
     const auth = acceso(request, ['ADMIN']); if (auth.fallo) return auth.fallo
     return HttpResponse.json(usuarios.filter(u => u.rol === 'INSTRUCTOR').map(u => ({ id: u.id, nombre: u.nombre })))
@@ -136,7 +152,7 @@ export const handlersCursos = [
     const yaInscrito = inscritos.has(auth.usuario!.id)
     if (!yaInscrito && inscritos.size >= curso.cupos) return error(409, 'El curso está sin cupos. Elige otra capacitación.', 'SIN_CUPOS')
     inscritos.add(auth.usuario!.id); inscripcionesCursosDemo.set(curso.id, inscritos)
-    if (!yaInscrito) estadosInscripcionDemo.set(`${curso.id}:${auth.usuario!.id}`, curso.costo > 0 ? 'PENDIENTE_PAGO' : 'EN_CURSO')
+    if (!yaInscrito) estadosInscripcionDemo.set(`${curso.id}:${auth.usuario!.id}`, curso.modalidadCobro === 'CERTIFICADO' || curso.costo === 0 ? 'EN_CURSO' : 'PENDIENTE_PAGO')
     const estado = yaInscrito && auth.usuario!.id === 'p-1' && curso.titulo === 'Demo · Seguridad y primeros auxilios' ? 'TERMINADO' : estadosInscripcionDemo.get(`${curso.id}:${auth.usuario!.id}`) ?? 'EN_CURSO'
     return HttpResponse.json({ cursoId: curso.id, estado, yaInscrito }, { status: yaInscrito ? 200 : 201 })
   }),

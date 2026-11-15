@@ -17,6 +17,7 @@ const OPCIONES: Record<Rol, Opcion[]> = {
     { to: '/cursos', texto: 'Cursos' },
     { to: '/admin/clases', texto: 'Clases' },
     { to: '/admin/certificados', texto: 'Certificados' },
+    { to:'/admin/pagos',texto:'Pagos' },
     { to: '/admin/usuarios', texto: 'Usuarios', end: true },
     { to: '/admin/historial', texto: 'Historiales', end: true },
     REUNIONES,

@@ -67,7 +67,7 @@ export const handlersHistorial = [
     const auth = acceso(request, String(params.usuarioId)); if (auth.error) return auth.error
     const h = historialDe(auth.persona!.id)
     const lineas = [`Colegiado: ${h.colegiado.nombre}`, `DNI: ${h.colegiado.dniEnmascarado ?? 'No registrado'}`, 'Resumen de demostración', `Horas acumuladas: ${h.horasAcumuladas.total} horas (solo certificados válidos).`, ...h.horasAcumuladas.porAnio.map(a => `Año ${a.anio}: ${a.horas} horas`),
-      ...h.cursos.flatMap(c => [c.titulo, { EN_CURSO: 'En curso', TERMINADO: 'Terminado', PENDIENTE_PAGO: 'Pendiente de pago' }[c.estado], `Asistencia: ${c.asistencia.porcentaje ?? '-'}%`, ...c.sesiones.map(s => `${s.fecha} | ${s.titulo} | ${s.estado}`), ...c.certificados.map(cert => `Certificado: ${cert.codigo}`)]),
+      ...h.cursos.flatMap(c => [c.titulo, { EN_CURSO: 'En curso', TERMINADO: 'Terminado', PENDIENTE_PAGO: 'Pendiente de pago', CANCELADA:'Cancelada por vencimiento' }[c.estado], `Asistencia: ${c.asistencia.porcentaje ?? '-'}%`, ...c.sesiones.map(s => `${s.fecha} | ${s.titulo} | ${s.estado}`), ...c.certificados.map(cert => `Certificado: ${cert.codigo}`)]),
       'Otras sesiones', ...h.sesionesIndependientes.map(s => `${s.fecha} | ${s.titulo} | ${s.estado}`)]
     return pdf(pdfTextoDemo('Historial de capacitación', lineas), 'historial-capacitacion.pdf')
   }),

@@ -1,5 +1,7 @@
 import { SesionesCurso } from './SesionesCurso'
 import { FechasCurso } from './CursosPagina'
+import { condicionesCobro } from './formatoCurso'
+import { PagoCurso } from './PagoCurso'
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
@@ -18,8 +20,9 @@ export function DetalleCursoPagina() {
   const { id = '' } = useParams()
   const { usuario } = useAuth()
   const cache = useQueryClient()
-  const consulta = useQuery({ queryKey: ['curso', id], queryFn: () => cursos.obtener(id) })
-  const inscripcion = useMutation({ mutationFn: () => cursos.inscribirme(id), onSuccess: async () => {
+  const consulta = useQuery({ queryKey: ['curso', id], queryFn: () => cursos.obtener(id),
+    refetchInterval:query=>query.state.data?.miInscripcion?.estadoEntrega==='RETENIDA' && query.state.data.miInscripcion.estadoFinanciero==='PAGADO'?3000:false })
+  const inscripcion = useMutation({ mutationFn: () => cursos.inscribirme(id,consulta.data?.versionCobro), onSuccess: async () => {
     await Promise.all([cache.invalidateQueries({ queryKey: ['curso', id] }), cache.invalidateQueries({ queryKey: ['cursos'] }), cache.invalidateQueries({ queryKey: ['historial'] }), cache.invalidateQueries({ queryKey: ['participante', 'clases'] })])
   }, onError: async () => { await Promise.all([cache.invalidateQueries({ queryKey: ['curso', id] }), cache.invalidateQueries({ queryKey: ['cursos'] })]) } })
   const publicar = useMutation({ mutationFn: () => cursos.publicar(id), onSuccess: async () => { await Promise.all([cache.invalidateQueries({ queryKey: ['curso', id] }), cache.invalidateQueries({ queryKey: ['cursos'] })]) } })
@@ -39,7 +42,7 @@ export function DetalleCursoPagina() {
         <div><dt className="font-semibold">Instructor</dt><dd>{curso.instructorNombre}</dd></div>
         <div><dt className="font-semibold">Horas lectivas</dt><dd>{curso.horasLectivas}</dd></div>
         <div><dt className="font-semibold">Modalidad</dt><dd>{{ PRESENCIAL: 'Presencial', VIRTUAL: 'Virtual', HIBRIDA: 'Híbrida' }[curso.modalidad]}</dd></div>
-        <div><dt className="font-semibold">Costo</dt><dd>S/ {curso.costo.toFixed(2)}</dd></div>
+        <div><dt className="font-semibold">Cobro</dt><dd>{condicionesCobro(curso)}</dd></div>
         <div><dt className="font-semibold">Cupos disponibles</dt><dd>{curso.cuposDisponibles === 0 ? 'Sin cupos' : curso.cuposDisponibles}</dd></div>
         <div><dt className="font-semibold">Categoría</dt><dd>{curso.categoria}</dd></div>
         <div><dt className="font-semibold">Fechas</dt><dd><FechasCurso curso={curso} /></dd></div>
@@ -54,8 +57,17 @@ export function DetalleCursoPagina() {
       </div>}
       {publicar.isError && <p role="alert" className="text-danger">{mensajeDeError(publicar.error, 'No pudimos publicar el curso.')}</p>}
     </header>
+    {curso.miInscripcion && usuario?.rol==='AGREMIADO' && <section className="space-y-2 rounded-xl border border-line bg-white p-4" aria-label="Condiciones de mi inscripción">
+      <h2 className="font-semibold">Condiciones de tu inscripción</h2>
+      <p>{condicionesCobro({costo:curso.miInscripcion.importeCentimos/100,modalidadCobro:curso.miInscripcion.modalidadCobro,plazoPagoMinutos:curso.miInscripcion.plazoPagoMinutos})}</p>
+      {curso.miInscripcion.venceEn && <p>Plazo hasta el {new Date(curso.miInscripcion.venceEn).toLocaleString('es-PE',{timeZone:'America/Lima'})} (hora de Lima).</p>}
+      {curso.miInscripcion.estado==='CANCELADA' && <p role="status">Tu reserva venció y el cupo se liberó. Puedes solicitar otra inscripción si hay disponibilidad.</p>}
+      {curso.miInscripcion.estadoEntrega==='RETENIDA' && <p role="status">{curso.miInscripcion.estadoFinanciero==='PAGADO'?'Pago confirmado. Estamos preparando tu constancia.':'Constancia retenida: cumples los requisitos académicos y falta confirmar el pago.'}</p>}
+    </section>}
+    {usuario?.rol==='AGREMIADO' && curso.miInscripcion?.pagoId && <PagoCurso pagoId={curso.miInscripcion.pagoId} />}
     <SesionesCurso curso={curso} administrador={usuario?.rol === 'ADMIN' && curso.estado !== 'CERRADO' && curso.modalidad !== 'VIRTUAL'} participante={usuario?.rol === 'AGREMIADO'} />
     <h2 className="text-xl font-semibold">Módulos y material</h2>
+    {curso.accesoContenido===false && <p>El contenido estará disponible cuando tengas una inscripción confirmada.</p>}
     <ol className="space-y-4">{curso.modulos.map(modulo => <Modulo key={modulo.id} cursoId={id} modulo={modulo} puedeAgregar={puedeAgregar} />)}</ol>
   </div>
 }

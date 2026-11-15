@@ -3,11 +3,12 @@ import { promisify } from 'node:util'
 import { expect, test } from '../../ayud/prueba'
 import { cuentaReal, cuentas } from '../../ayud/datos'
 import { completarAcceso, entrar } from '../../ayud/sesion'
+import { entornoBackendReal } from '../../ayud/entornoReal'
 
 test.use({ viewport: { width: 360, height: 800 } })
 test('HU-20: constancia real de demostración, PDF estable y verificación sin DNI', async ({ page, context }) => {
   test.setTimeout(90000)
-  const { stdout } = await promisify(execFile)('npm',['exec','-w','backend','--','tsx','src/scripts/certificadoDemoE2e.ts'],{env:{...process.env,NODE_ENV:'test',DB_NAME:'gestioncapa_e2e',ADMIN_EMAIL:cuentaReal.email,ADMIN_PASSWORD:cuentaReal.password,JWT_SECRET:'secreto-local-exclusivo-para-pruebas-e2e',QR_SECRET:'secreto-qr-local-exclusivo-para-pruebas-e2e'}})
+  const { stdout } = await promisify(execFile)('npm',['exec','-w','backend','--','tsx','src/scripts/certificadoDemoE2e.ts'],{env:{...process.env,...entornoBackendReal}})
   const { cursoId, titulo } = JSON.parse(stdout) as {cursoId:string;titulo:string}
   await entrar(page,cuentaReal)
   await page.goto(`/admin/cursos/${cursoId}/cerrar`)

@@ -21,8 +21,8 @@ const booleanFromEnv = z.preprocess((value) => {
 const MOTIVO_FALTA = "falta";
 const MOTIVO_EJEMPLO = "tiene el valor de ejemplo; reemplázalo por uno propio";
 
-// Los marcadores de backend/.env.example contienen "CAMBIA".
-const esValorDeEjemplo = (value: string) => /cambia/i.test(value);
+// Distingue marcadores locales y ejemplos de credenciales externas.
+const esValorDeEjemplo = (value: string) => /cambia|ejemplo_/i.test(value);
 
 // Variable sin valor por defecto: ausente o vacía cuenta como faltante.
 const requerida = (validar: (schema: z.ZodString) => z.ZodString = (schema) => schema) =>
@@ -57,6 +57,16 @@ const envSchema = z.object({
   // Firma los tokens del QR de asistencia; distinto de JWT_SECRET.
   QR_SECRET: requerida((s) => s.min(32, "debe tener al menos 32 caracteres")),
   jitsiHabilitado: booleanFromEnv.default(false),
+  pagosEntorno: z.enum(['sandbox','produccion']).default('sandbox'),
+  pagosUrlPublica: z.string().url().optional(),
+  izipayHabilitado: booleanFromEnv.default(false),
+  izipayCodigoComercio: z.string().min(1).max(15).optional(),
+  izipayClavePublica: z.string().min(16).max(400).optional(),
+  izipayClaveHash: z.string().min(32).optional(),
+  izipayRsaPublica: z.string().min(20).max(4096).optional(),
+  culqiHabilitado: booleanFromEnv.default(false),
+  culqiClavePublica: z.string().optional(),
+  culqiClaveSecreta: z.string().optional(),
   jitsiDominio: z.string().regex(/^[a-zA-Z0-9.-]+$/).optional(),
   jitsiDireccion: z.string().url().refine(valor => new URL(valor).protocol === "https:" || (new URL(valor).protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(valor).hostname)), "debe usar HTTPS; HTTP solo se admite en localhost").optional(),
   jitsiAplicacion: z.string().min(3).optional(),
@@ -85,6 +95,23 @@ export class EnvError extends Error {
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const result = envSchema.superRefine((configuracion, contexto) => {
+    if (configuracion.pagosEntorno === 'produccion' && configuracion.NODE_ENV !== 'production') contexto.addIssue({ code:'custom',path:['pagosEntorno'],message:'los cobros de producción requieren NODE_ENV=production' });
+    const requeridos = [
+      ...(configuracion.izipayHabilitado ? ['izipayCodigoComercio','izipayClavePublica','izipayClaveHash','izipayRsaPublica','pagosUrlPublica'] as const : []),
+      ...(configuracion.culqiHabilitado ? ['culqiClavePublica','culqiClaveSecreta','pagosUrlPublica'] as const : []),
+    ];
+    for (const nombre of requeridos) {
+      const valor = configuracion[nombre];
+      if (!valor || esValorDeEjemplo(valor)) contexto.addIssue({ code:'custom',path:[nombre],message:'configura credenciales propias para habilitar la pasarela' });
+    }
+    if ((configuracion.izipayHabilitado || configuracion.culqiHabilitado) && configuracion.pagosUrlPublica) {
+      const url = new URL(configuracion.pagosUrlPublica);
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') contexto.addIssue({ code:'custom',path:['pagosUrlPublica'],message:'usa el origen público HTTPS sin ruta ni credenciales' });
+    }
+    if (configuracion.culqiHabilitado) {
+      const entorno = configuracion.pagosEntorno === 'sandbox' ? 'test' : 'live';
+      if (!configuracion.culqiClavePublica?.startsWith(`pk_${entorno}_`) || !configuracion.culqiClaveSecreta?.startsWith(`sk_${entorno}_`)) contexto.addIssue({ code:'custom',path:['culqiClaveSecreta'],message:'las llaves deben corresponder al entorno seleccionado' });
+    }
     if (!configuracion.jitsiHabilitado) return;
     for (const nombre of ["jitsiDominio", "jitsiAplicacion", "jitsiSecreto"] as const) {
       if (!configuracion[nombre] || esValorDeEjemplo(configuracion[nombre])) {

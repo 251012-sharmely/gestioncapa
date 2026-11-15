@@ -31,7 +31,7 @@ export async function registrarCertificados(app:FastifyInstance) {
     validarId(request.params.id);
     const datos=z.object({agremiadoId:z.string().regex(/^[1-9]\d{0,14}$/,'Selecciona un colegiado válido.'),motivo:motivoCertificado}).strict().parse(request.body);
     const certificado=await excepcionCerrado(request.params.id,datos.agremiadoId,datos.motivo,request.usuario!);
-    return reply.code(201).send({codigo:certificado.codigo});
+    return reply.code(201).send({codigo:certificado.codigo,retenida:certificado.retenida,...('pagoId' in certificado?{pagoId:certificado.pagoId}:{})});
   });
   app.get('/api/certificados/:codigo',async(request:ConCodigo)=>{
     const codigo=codigoDe(request);

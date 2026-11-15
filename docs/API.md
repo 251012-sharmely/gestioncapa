@@ -192,3 +192,43 @@ documento (o las horas del curso para certificados históricos sin instantánea)
 El año de emisión corresponde a `America/Lima`. El filtro anual se aplica en la
 interfaz; el PDF contiene el total y todos los años. Ver [HU-34](esp/horasAcumuladas.md).
 >>>>>>> Stashed changes
+# HU-53 — Cobro de cursos
+
+La creación y las respuestas comerciales añaden `modalidadCobro`
+(`PREVIO`/`CERTIFICADO`/`GRATUITO`), `plazoPagoMinutos` y `versionCobro`.
+PREVIO requiere importe positivo y plazo entero de 1–525600 minutos; CERTIFICADO
+importe positivo y plazo nulo; GRATUITO importe cero y plazo nulo. Moneda PEN.
+
+`PATCH /api/cursos/:id/cobro` (ADMIN) recibe esos campos y la versión leída.
+Devuelve el curso persistido; 409 si cambió la versión o el curso está cerrado.
+`POST /api/cursos/:id/inscribirme` requiere `{versionCobro}` para ofertas pagadas;
+si falta o cambió, 409 `COBRO_MODIFICADO`. La respuesta conserva sus estados y
+añade `intentoId`, `pagoId` y `venceEn`. Un reintento existente conserva su plazo.
+El detalle privado aporta `miInscripcion` (condiciones aceptadas, obligación y
+entrega) y `accesoContenido`; sin derecho vigente devuelve módulos vacíos y
+rechaza el acceso directo al PDF. Los datos de inscripción/pago no salen en el
+catálogo público. CANCELADA indica la reserva vencida, no una deuda pagada.
+
+| Método/ruta | Actor | Cuerpo/resultado |
+| --- | --- | --- |
+| GET /api/pagos/:id | Propietario o ADMIN | Obligación en céntimos, contexto privado, operaciones/incidencias, medios disponibles; no secretos |
+| POST /api/pagos/:id/intentos | Propietario AGREMIADO | `{medio:"IZIPAY" o "CULQI",clave:UUID,token?:string}`; Culqi exige token del entorno; sesión Izipay solo al iniciador |
+| POST /api/pagos/:id/efectivo | ADMIN activo | `{referencia:string}` de recibo interno único; monto completo del servidor, recepción auditada |
+| POST /api/pagos/:id/conciliar | ADMIN | `{operacionId:UUID,referencia?:string}` de esta obligación; verifica al proveedor y no crea cargos |
+| POST /api/pagos/notificaciones/:proveedor | Público con prueba del proveedor | Izipay: payloadHttp original y signature; Culqi: referencia de evento/cargo que el backend consulta autenticado |
+
+Repetir la misma clave exige misma carga; otra carga o una operación activa devuelve
+409. Una repetición Izipay puede recuperar exactamente la sesión original vigente,
+cifrada, mientras la obligación siga exigible. Una operación incierta no habilita
+otro cobro. `CONCILIACION` significa evidencia conservada sin confirmación aplicable.
+401 sin sesión, 403 por propiedad/rol, 404 inexistente, 422 validación/firma/token,
+409 conflicto y 503 proveedor no configurado/incierto. Los webhooks tienen límite
+de 256 KiB y 120 solicitudes/minuto/IP/proveedor; solicitudes internas de pago 4 KiB.
+Las respuestas privadas de pago no se almacenan en caché.
+
+El cierre distingue `{emitidos,retenidos}`. La entrega RETENIDA no dispone de código
+ni PDF válido. El historial separa inscripción, `estadoFinanciero`, `estadoEntrega`
+y `pagoId`; el pago de constancia no convierte la inscripción en pendiente.
+`intentosAnteriores` conserva condiciones, estado y referencia de pago de las
+inscripciones anteriores del mismo propietario, también después de reinscribirse.
+Más detalles, migración, límites y evidencia: [Cobro de cursos](esp/cobroCursos.md).

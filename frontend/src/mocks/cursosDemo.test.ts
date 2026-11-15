@@ -68,7 +68,19 @@ it('RF-07: el catálogo público no pide token ni publica materiales o identific
   const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
   for (const curso of pagina.items) {
     expect(curso.fechaFin === null || curso.fechaFin >= hoy).toBe(true)
-    expect(Object.keys(curso).sort()).toEqual(['id', 'titulo', 'descripcion', 'instructorNombre', 'horasLectivas', 'modalidad', 'costo', 'cupos', 'cuposDisponibles', 'categoria', 'fechaInicio', 'fechaFin'].sort())
+    expect(Object.keys(curso).sort()).toEqual(['id', 'titulo', 'descripcion', 'instructorNombre', 'horasLectivas', 'modalidad', 'costo', 'cupos', 'cuposDisponibles', 'categoria', 'fechaInicio', 'fechaFin', 'modalidadCobro', 'plazoPagoMinutos', 'versionCobro'].sort())
   }
   expect((await fetch('http://localhost/api/publico/cursos?tamanoPagina=51')).status).toBe(422)
+})
+
+it('HU53: la demostración confirma la inscripción cuando solo se cobra la constancia',async()=>{
+  const base=(await (await consultar('/cursos','u-admin-1')).json())[0]
+  const creada=await fetch('http://localhost/api/cursos',{method:'POST',headers:{Authorization:'Bearer demo-u-admin-1','Content-Type':'application/json'},
+    body:JSON.stringify({titulo:'HU53 certificado demo',descripcion:'Curso de prueba.',instructorId:base.instructorId,horasLectivas:24,modalidad:'PRESENCIAL',costo:30,
+      cupos:20,tipoCertificado:'PARTICIPACION',modalidadCobro:'CERTIFICADO',plazoPagoMinutos:null,modulos:[{titulo:'Introducción'}]})})
+  expect(creada.status).toBe(201)
+  const curso=await creada.json()
+  await fetch(`http://localhost/api/cursos/${curso.id}/publicar`,{method:'POST',headers:{Authorization:'Bearer demo-u-admin-1'}})
+  const inscripcion=await fetch(`http://localhost/api/cursos/${curso.id}/inscribirme`,{method:'POST',headers:{Authorization:'Bearer demo-p-1'}})
+  expect((await inscripcion.json()).estado).toBe('EN_CURSO')
 })
