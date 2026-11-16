@@ -14,4 +14,11 @@ export const entornoBackendReal = {
   JWT_SECRET: 'secreto-local-exclusivo-para-pruebas-e2e',
   QR_SECRET: 'secreto-qr-local-exclusivo-para-pruebas-e2e',
   LOG_LEVEL: 'warn',
+  correoHabilitado: 'false',
+  // Destino ficticio exclusivo de E2E; nunca se usa para cobrar dinero real.
+  transferenciaHabilitada: 'true',
+  transferenciaBanco: 'BANCO FICTICIO E2E',
+  transferenciaTitular: 'Entidad ficticia de pruebas',
+  transferenciaCuenta: '1234567890123',
+  transferenciaCci: '00212345678901234567',
 }

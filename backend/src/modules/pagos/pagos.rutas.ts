@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { pool } from '../../shared/database.js';
 import { idCurso } from '../cursos/cursos.validacion.js';
-import { ErrorPago, entradaEfectivo, entradaIntento } from './pagos.modelo.js';
+import { ErrorPago, entradaIntento,entradaRevisionTransferencia } from './pagos.modelo.js';
 import { obtenerPago, registrarEfectivo } from './pagos.repositorio.js';
 import { iniciarPago, mediosDisponibles } from './pagos.servicio.js';
 import { recibirIzipay, recibirCulqi, conciliarOperacion } from './pagos.notificaciones.js';
@@ -10,6 +10,9 @@ import { z } from 'zod';
 import { redis } from '../../shared/redis.js';
 import { createHash } from 'node:crypto';
 import { env } from '../../config/env.js';
+import { ofrecerTransferencia,buscarDestinoTransferencia,declararTransferencia,revisarTransferencia,listarTransferencias,reponerVoucher } from './pagos.transferencias.js';
+import { entradaSubidaVoucher,entradaRecepcionEfectivo,validarArchivoVoucher } from './pagos.voucher.js';
+import { obtenerVoucher } from './pagos.archivos.js';
 
 type ConPago=FastifyRequest<{Params:{id:string}}>;
 async function ejecutar(reply:FastifyReply,operacion:()=>Promise<unknown>) {
@@ -42,6 +45,7 @@ export async function registrarPagos(app:FastifyInstance) {
     return {estado:await conciliarOperacion(op.id,entrada.referencia)};
   }));
   app.get('/api/pagos/:id',async (request:ConPago,reply)=>ejecutar(reply,async()=>{
+    reply.header('Cache-Control','private, no-store');
     const pago=await pagoAutorizado(request);
     const contexto=(await pool.query(`select c.titulo as "cursoTitulo",u.name as "participanteNombre",
       case when p.concepto='CURSO' then t.estado='PENDIENTE_PAGO' and t."venceEn">clock_timestamp() and i."intentoId"=t.id
@@ -49,22 +53,52 @@ export async function registrarPagos(app:FastifyInstance) {
       from "obligacionesPago" p join cursos c on c.id=p."cursoId" join users u on u.id=p."usuarioId"
       left join "intentosInscripcion" t on t.id=p."intentoId" left join inscripciones_curso i on i.curso_id=c.id and i.usuario_id=u.id where p.id=$1`,[pago.id])).rows[0];
     const operaciones=(await pool.query(`select id,medio,estado,entorno,"referenciaExterna",clave,
-      (estado='INICIADO' and "sesionCifrada" is not null and "sesionVenceEn">clock_timestamp()) as "sesionRecuperable"
+      (estado='INICIADO' and "sesionCifrada" is not null and "sesionVenceEn">clock_timestamp()
+        and not exists(select 1 from "operacionesPago" tr where tr."pagoId"=$1 and tr.medio='TRANSFERENCIA' and tr.estado in ('INICIADO','INCIERTO','DECLARADO'))) as "sesionRecuperable"
       from "operacionesPago" where "pagoId"=$1 order by numero desc limit 10`,[pago.id])).rows;
     const incidencias=(await pool.query(`select motivo,referencia,"creadoEn" from "incidenciasPago" where "pagoId"=$1 order by id desc limit 10`,[pago.id])).rows;
-    return reply.header('Cache-Control','private, no-store').send({...pago,...contexto,exigible:contexto?.exigible===true,operaciones,incidencias,medios:mediosDisponibles()});
+    const destinoTransferencia=env.transferenciaHabilitada && pago.estado==='PENDIENTE' ? await ofrecerTransferencia(pago.id,{
+      banco:env.transferenciaBanco!,titular:env.transferenciaTitular!,cuenta:env.transferenciaCuenta!,cci:env.transferenciaCci!,
+    }):await buscarDestinoTransferencia(pago.id)??null;
+    const notificaciones=(await pool.query(`select id,tipo,estado,intentos,"enviadoEn","ultimoError" from "notificacionesPago" where "pagoId"=$1 order by "creadoEn" desc limit 10`,[pago.id])).rows;
+    return {...pago,...contexto,exigible:contexto?.exigible===true,operaciones,incidencias,transferencias:await listarTransferencias(pago.id),destinoTransferencia,medios:mediosDisponibles(),notificaciones};
   }));
   app.post('/api/pagos/:id/intentos',{bodyLimit:4096},async(request:ConPago,reply)=>ejecutar(reply,async()=>{
     reply.header('Cache-Control','private, no-store');
     const pago=await pagoAutorizado(request);
     if (String(pago.usuarioId)!==String(request.usuario!.id)) throw new ErrorPago(403,'SIN_PERMISO','Solo el propietario puede iniciar su pago.');
     const entrada=entradaIntento.parse(request.body);
+    if (entrada.medio==='CULQI') throw new ErrorPago(503,'PASARELA_NO_SELECCIONADA','La pasarela elegida para nuevos pagos es Izipay.');
     return iniciarPago(pago,request.usuario!.id,entrada);
   }));
   app.post('/api/pagos/:id/efectivo',{bodyLimit:4096},async(request:ConPago,reply)=>ejecutar(reply,async()=>{
     const pago=await pagoAutorizado(request);
-    const {referencia}=entradaEfectivo.parse(request.body);
-    await registrarEfectivo(pago.id,request.usuario!.id,referencia);
+    const datos=entradaRecepcionEfectivo.parse(request.body);
+    await registrarEfectivo(pago.id,request.usuario!.id,datos.referencia,datos);
     return reply.header('Cache-Control','private, no-store').send(await obtenerPago(pago.id));
+  }));
+  app.post('/api/pagos/:id/transferencias',{bodyLimit:8*1024*1024},async(request:ConPago,reply)=>ejecutar(reply,async()=>{
+    reply.header('Cache-Control','private, no-store');
+    const pago=await pagoAutorizado(request);
+    const {voucher,...datos}=entradaSubidaVoucher.parse(request.body);
+    const operacion=await declararTransferencia(pago.id,request.usuario!.id,datos,validarArchivoVoucher(voucher));
+    return reply.code(operacion.nueva?201:200).send({operacionId:operacion.id,estado:operacion.estado});
+  }));
+  app.get('/api/pagos/:id/transferencias/:operacionId/voucher',async(request:FastifyRequest<{Params:{id:string;operacionId:string}}>,reply)=>ejecutar(reply,async()=>{
+    reply.header('Cache-Control','private, no-store');
+    const pago=await pagoAutorizado(request);const operacionId=z.uuid().parse(request.params.operacionId);
+    const archivo=await obtenerVoucher(pago.id,operacionId);
+    const extension=archivo.tipo==='application/pdf'?'pdf':archivo.tipo==='image/png'?'png':'jpg';
+    return reply.type(archivo.tipo).header('Content-Disposition',`attachment; filename="voucher-${operacionId}.${extension}"`)
+      .header('X-Content-Type-Options','nosniff').header('Content-Security-Policy',"sandbox; default-src 'none'").send(archivo.contenido);
+  }));
+  app.put('/api/pagos/:id/transferencias/:operacionId/voucher',{bodyLimit:8*1024*1024},async(request:FastifyRequest<{Params:{id:string;operacionId:string}}>,reply)=>ejecutar(reply,async()=>{
+    reply.header('Cache-Control','private, no-store');const pago=await pagoAutorizado(request);
+    return {voucherId:await reponerVoucher(pago.id,z.uuid().parse(request.params.operacionId),request.usuario!.id,request.body)};
+  }));
+  app.post('/api/pagos/:id/transferencias/:operacionId/revision',{bodyLimit:4096},async(request:FastifyRequest<{Params:{id:string;operacionId:string}}>,reply)=>ejecutar(reply,async()=>{
+    reply.header('Cache-Control','private, no-store');
+    const pago=await pagoAutorizado(request);
+    return {estado:await revisarTransferencia(pago.id,z.uuid().parse(request.params.operacionId),request.usuario!.id,entradaRevisionTransferencia.parse(request.body))};
   }));
 }

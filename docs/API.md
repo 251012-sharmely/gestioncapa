@@ -213,7 +213,7 @@ catálogo público. CANCELADA indica la reserva vencida, no una deuda pagada.
 | --- | --- | --- |
 | GET /api/pagos/:id | Propietario o ADMIN | Obligación en céntimos, contexto privado, operaciones/incidencias, medios disponibles; no secretos |
 | POST /api/pagos/:id/intentos | Propietario AGREMIADO | `{medio:"IZIPAY" o "CULQI",clave:UUID,token?:string}`; Culqi exige token del entorno; sesión Izipay solo al iniciador |
-| POST /api/pagos/:id/efectivo | ADMIN activo | `{referencia:string}` de recibo interno único; monto completo del servidor, recepción auditada |
+| POST /api/pagos/:id/efectivo | ADMIN activo | `{referencia:string,importeCentimos:number,fechaRecepcion:"YYYY-MM-DD"}`; importe recibido igual al completo de la orden, fecha no futura y recepción auditada |
 | POST /api/pagos/:id/conciliar | ADMIN | `{operacionId:UUID,referencia?:string}` de esta obligación; verifica al proveedor y no crea cargos |
 | POST /api/pagos/notificaciones/:proveedor | Público con prueba del proveedor | Izipay: payloadHttp original y signature; Culqi: referencia de evento/cargo que el backend consulta autenticado |
 
@@ -232,3 +232,79 @@ y `pagoId`; el pago de constancia no convierte la inscripción en pendiente.
 `intentosAnteriores` conserva condiciones, estado y referencia de pago de las
 inscripciones anteriores del mismo propietario, también después de reinscribirse.
 Más detalles, migración, límites y evidencia: [Cobro de cursos](esp/cobroCursos.md).
+
+## T-25 — Izipay y transferencias bancarias
+
+Para nuevos intentos, `POST /api/pagos/:id/intentos` recibe `medio:"IZIPAY"`.
+`CULQI` devuelve 503 `PASARELA_NO_SELECCIONADA`, también cuando sus credenciales
+históricas están configuradas. Se conservan sus notificaciones y conciliación;
+los clientes deben cambiar de pasarela explícitamente, sin reutilizar tokens Culqi.
+
+`GET /api/pagos/:id` añade `transferencias`, `destinoTransferencia` y
+`medios.transferencia`. El destino contiene `{id,banco,titular,cuenta,cci}` y se
+conserva para esa obligación desde la primera oferta. Cambiar la configuración
+afecta a nuevas obligaciones. Con el flag apagado no se ofrecen destinos nuevos;
+uno previamente ofrecido sigue disponible para declarar un abono ya realizado.
+La respuesta requiere propietario o ADMIN y usa `Cache-Control: private, no-store`.
+
+| Método/ruta | Actor | Cuerpo y resultado |
+| --- | --- | --- |
+| POST /api/pagos/:id/transferencias | Propietario AGREMIADO activo | `{destinoId:UUID,clave:UUID,referencia:string,fechaOperacion:"YYYY-MM-DD",voucher:{tipo,contenidoBase64}}`. 201 `{operacionId,estado:"DECLARADO"}`; repetición exacta 200 |
+| POST /api/pagos/:id/transferencias/:operacionId/revision | ADMIN activo | Confirmar: `{decision:"CONFIRMAR",referencia,fechaOperacion,importeCentimos,moneda:"PEN",verificado:true}`. Rechazar: `{decision:"RECHAZAR",motivo:string}`. 200 `{estado:"CONFIRMADO" o "RECHAZADO"}` |
+
+La referencia tiene 3–100 caracteres alfanuméricos, espacio, punto, barra o guion;
+se normaliza a mayúsculas y espacios simples. La fecha debe existir y no ser futura.
+La clave exige la misma carga y el destino debe haberse ofrecido a esa obligación.
+La declaración no inicia un cargo ni confirma dinero: guarda evidencia pendiente.
+`DECLARADO` es exclusivo de TRANSFERENCIA y admite una declaración por revisar por
+obligación. Mientras exista se bloquean nuevos cargos, efectivo y recuperación de
+sesión Izipay; la conciliación de operaciones previamente iniciadas se conserva.
+
+ADMIN contrasta el abono real con el destino persistido, el importe congelado,
+moneda, referencia y fecha. No hay carga pública de archivos ni confirmación desde
+webhooks para medios manuales. Se auditan declaración, decisión, actor y fecha.
+La decisión terminal solo admite repetición exacta; cambiarla devuelve 409.
+La referencia bancaria canónica se reserva desde la declaración, eliminando espacios,
+puntos, barras y guiones. No puede reutilizarse entre obligaciones, aunque cambien
+cuenta o fecha, se rechace el voucher o se elimine su archivo por retención.
+El destino ajeno devuelve 422; operación ajena 404; permisos 401/403; discrepancias,
+clave reutilizada o abono reutilizado 409. Declaración y reposición de voucher tienen
+límite de cuerpo de 8 MiB; revisión y efectivo mantienen 4 KiB.
+
+Se pueden conservar declaraciones tardías o de ingresos adicionales a un destino
+ya ofrecido. Confirmar un pago tardío conserva la incidencia TARDIO sin recuperar
+cupo; un ingreso adicional deja hecho e incidencia para conciliación sin aplicar
+otra vez la deuda. No se automatizan devoluciones ni se aceptan pagos parciales.
+
+## HU-32 — Vouchers privados y comprobantes por correo
+
+Las nuevas transferencias exigen `voucher:{tipo:"image/jpeg"|"image/png"|"application/pdf",contenidoBase64:string}`.
+Se valida base64 canónico, firma y tamaño máximo de 5 MiB, sin nombre ni ruta
+del cliente. No se trata la firma como análisis antivirus. Declaración y archivo
+se guardan en una transacción. Se mantienen las declaraciones históricas sin archivo.
+
+| Método/ruta | Actor | Resultado |
+| --- | --- | --- |
+| GET /api/pagos/:id/transferencias/:operacionId/voucher | Propietario o ADMIN | Binario adjunto privado con MIME conocido, no-store, nosniff y CSP sandbox; 404 si no pertenece al pago, 410 al vencer/eliminarse |
+| PUT /api/pagos/:id/transferencias/:operacionId/voucher | Propietario AGREMIADO activo | `{clave:UUID,version:number,voucher:{tipo,contenidoBase64}}`. 200 `{voucherId}`. Repone únicamente el último archivo vencido de un trámite DECLARADO; conserva operación, número e historial. 409 si no está disponible |
+
+`GET /api/pagos/:id` añade a cada transferencia `voucher` (o null histórico):
+`{id,version,tipo,tamano,hash,eliminarEn,eliminadoEn,disponible}`. No incluye binario.
+También aporta `notificaciones:[{id,tipo,estado,intentos,enviadoEn,ultimoError}]`;
+tipos COMPROBANTE/RECHAZO, estados PENDIENTE/ENVIANDO/ENVIADO. No expone destinatarios,
+contenido del correo ni credenciales. Las pantallas siguen consultando el correo
+pendiente incluso después de confirmar el dinero.
+
+La aprobación exige archivo vigente cuando la declaración tiene voucher; conserva
+la revisión de declaraciones históricas sin archivo. Confirmación y evento de correo
+son atómicos. SMTP entrega un PDF de recepción; rechazo envía el motivo en texto.
+El fallo SMTP no revierte la decisión financiera. ENVIADO indica aceptación SMTP,
+sin acreditar lectura o llegada a bandeja de entrada. No es una factura tributaria.
+
+**Adaptación incompatible:** clientes previos deben enviar voucher en nuevas
+transferencias e importe/fecha en efectivo. Las claves de transferencia incluyen
+hash y tipo del archivo; repetir clave con otra carga devuelve 409. El efectivo
+repetido conserva los datos originales y rechaza cambios en importe/fecha.
+
+Operación, configuración, retención y publicación manual:
+[Pago por transferencia y efectivo](esp/pagosTransferenciaEfectivo.md).

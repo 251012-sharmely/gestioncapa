@@ -18,3 +18,28 @@ test('HU53-08: activar exige credenciales propias, entorno coherente y callback 
   assert.equal(config.culqiHabilitado, true);
   assert.throws(() => parseEnv({ ...base,culqiHabilitado:'true',culqiClavePublica:'pk_live_noUsar',culqiClaveSecreta:'sk_live_noUsar',pagosUrlPublica:'https://cursos.example.org' }));
 });
+
+test('T25-I02: transferencia apagada exige destino institucional completo al habilitar', () => {
+  assert.equal(parseEnv(base).transferenciaHabilitada, false);
+  assert.throws(() => parseEnv({ ...base, transferenciaHabilitada:'true' }));
+  const destino = { transferenciaHabilitada:'true', transferenciaBanco:'BCP',
+    transferenciaTitular:'Entidad exclusivamente de prueba', transferenciaCuenta:'1234567890123',
+    transferenciaCci:'00212345678901234567' };
+  assert.equal(parseEnv({ ...base,...destino }).transferenciaBanco,'BCP');
+  for (const cambio of [{transferenciaCci:'123'},{transferenciaTitular:'CAMBIA_TITULAR'},{transferenciaCuenta:'https://cuenta.test'}]) {
+    assert.throws(() => parseEnv({ ...base,...destino,...cambio }));
+  }
+});
+test('HU32-07/08: retención de tres meses y SMTP apagado; TLS obligatorio fuera de prueba local',()=>{
+  assert.equal(parseEnv(base).voucherRetencionMeses,3);
+  assert.equal(parseEnv(base).correoHabilitado,false);
+  assert.equal(parseEnv(base).correoPlazoEnvioMs,60000);
+  assert.throws(()=>parseEnv({...base,correoPlazoEnvioMs:'120000'}));
+  assert.throws(()=>parseEnv({...base,correoHabilitado:'true'}));
+  assert.throws(()=>parseEnv({...base,voucherRetencionMeses:'0'}));
+  assert.throws(()=>parseEnv({...base,voucherRetencionMeses:'4'}));
+  const correo={correoHabilitado:'true',correoServidor:'127.0.0.1',correoPuerto:'2525',correoRemitente:'pagos@prueba.local',correoSinTlsParaPruebas:'true'};
+  assert.doesNotThrow(()=>parseEnv({...base,...correo,NODE_ENV:'test'}));
+  assert.throws(()=>parseEnv({...base,...correo,NODE_ENV:'production'}));
+  assert.throws(()=>parseEnv({...base,...correo,NODE_ENV:'test',correoServidor:'smtp.externo.test'}));
+});

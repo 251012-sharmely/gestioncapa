@@ -5,7 +5,8 @@ import { pool } from '../../src/shared/database.js';
 import { redis } from '../../src/shared/redis.js';
 import { migrar } from '../../src/shared/migraciones.js';
 import type { FastifyInstance } from 'fastify';
-import { crearObligacion } from '../../src/modules/pagos/pagos.repositorio.js';
+import { crearObligacion,obtenerPago } from '../../src/modules/pagos/pagos.repositorio.js';
+import { iniciarPago } from '../../src/modules/pagos/pagos.servicio.js';
 import { randomUUID, createHmac } from 'node:crypto';
 import { env } from '../../src/config/env.js';
 import { iniciarOperacion } from '../../src/modules/pagos/pagos.repositorio.js';
@@ -67,8 +68,8 @@ test('HU53-06/08: consulta privada y registro de efectivo reales; pasarelas sin 
   assert.equal(consulta.statusCode,200,consulta.body);
   assert.equal(consulta.json().importeCentimos,15050);
   assert.equal((await llamar('alumno','POST',`${ruta}/intentos`,{medio:'CULQI',clave:randomUUID(),token:'tkn_test_sinCuenta'})).statusCode,503);
-  assert.equal((await llamar('alumno','POST',`${ruta}/efectivo`,{referencia:'CAJA-HTTP'})).statusCode,403);
-  assert.equal((await llamar('admin','POST',`${ruta}/efectivo`,{referencia:'CAJA-HTTP'})).statusCode,200);
+  assert.equal((await llamar('alumno','POST',`${ruta}/efectivo`,{referencia:'CAJA-HTTP',importeCentimos:15050,fechaRecepcion:'2026-01-01'})).statusCode,403);
+  assert.equal((await llamar('admin','POST',`${ruta}/efectivo`,{referencia:'CAJA-HTTP',importeCentimos:15050,fechaRecepcion:'2026-01-01'})).statusCode,200);
   assert.equal((await llamar('alumno','GET',ruta)).json().estado,'PAGADO');
 });
 
@@ -123,7 +124,7 @@ test('HU53-09/12: reserva congela condiciones y el efectivo confirma el acceso s
   await llamar('admin','PATCH',`/api/cursos/${curso.id}/cobro`,{modalidadCobro:'CERTIFICADO',costo:20,plazoPagoMinutos:null,versionCobro:1});
   const previo=(await llamar('alumno','GET',`/api/cursos/${curso.id}`)).json().miInscripcion;
   assert.equal(previo.modalidadCobro,'PREVIO'); assert.equal(previo.importeCentimos,15050);
-  const pago=await llamar('admin','POST',`/api/pagos/${previo.pagoId}/efectivo`,{referencia:`CAJA-${curso.id}`});
+  const pago=await llamar('admin','POST',`/api/pagos/${previo.pagoId}/efectivo`,{referencia:`CAJA-${curso.id}`,importeCentimos:15050,fechaRecepcion:'2026-01-01'});
   assert.equal(pago.statusCode,200,pago.body);
   const confirmado=(await llamar('alumno','GET',`/api/cursos/${curso.id}`)).json();
   assert.equal(confirmado.estadoInscripcion,'EN_CURSO');
@@ -140,7 +141,7 @@ test('HU53-11/13: vencimiento libera cupo y un pago tardío no reactiva la reser
   assert.equal(catalogo.json().items.find((item:{id:string})=>item.id===curso.id).inscrito,false);
   const segunda=await llamar('otro','POST',ruta,{versionCobro:1});
   assert.equal(segunda.statusCode,201,segunda.body);
-  await llamar('admin','POST',`/api/pagos/${primera.pagoId}/efectivo`,{referencia:`TARDIO-${curso.id}`});
+  await llamar('admin','POST',`/api/pagos/${primera.pagoId}/efectivo`,{referencia:`TARDIO-${curso.id}`,importeCentimos:15050,fechaRecepcion:'2026-01-01'});
   assert.equal((await llamar('alumno','GET',`/api/cursos/${curso.id}`)).json().estadoInscripcion,'CANCELADA');
   assert.equal((await llamar('otro','GET',`/api/cursos/${curso.id}`)).json().estadoInscripcion,'PENDIENTE_PAGO');
   assert.equal((await llamar('alumno','GET',`/api/pagos/${primera.pagoId}`)).json().incidencias[0].motivo,'TARDIO');
@@ -178,7 +179,7 @@ test('HU53-10: ni materiales ni asistencia se habilitan mediante una fila manual
   assert.equal((await llamar('alumno','POST',`${rutaReunion}/credencial`)).statusCode,403);
   assert.equal((await llamar('alumno','GET','/api/reuniones')).json().some((item:{identificador:string})=>item.identificador===reunion.json().identificador),false);
   const propio=(await llamar('alumno','GET',`/api/cursos/${curso.id}`)).json().miInscripcion;
-  await llamar('admin','POST',`/api/pagos/${propio.pagoId}/efectivo`,{referencia:`ACCESO-${curso.id}`});
+  await llamar('admin','POST',`/api/pagos/${propio.pagoId}/efectivo`,{referencia:`ACCESO-${curso.id}`,importeCentimos:15050,fechaRecepcion:'2026-01-01'});
   assert.equal((await llamar('alumno','GET',archivo)).statusCode,200);
   assert.equal(await estaInscrito(Number(clase.id),Number(usuarios.get('alumno')!.id)),true);
   assert.equal((await llamar('alumno','GET',rutaReunion)).statusCode,200);
@@ -209,7 +210,7 @@ test('HU53-14/15/16: retiene constancia elegible y la entrega tras pago sin reab
   assert.equal(fila.pagoId,pagoId);
   await pool.query('update classes set fecha=current_date-30 where id=$1',[clase.id]);
   await pool.query('update cursos set titulo=\'Título posterior\' where id=$1',[curso.id]);
-  await llamar('admin','POST',`/api/pagos/${pagoId}/efectivo`,{referencia:`CONSTANCIA-${curso.id}`});
+  await llamar('admin','POST',`/api/pagos/${pagoId}/efectivo`,{referencia:`CONSTANCIA-${curso.id}`,importeCentimos:3000,fechaRecepcion:'2026-01-01'});
   await liberarRetenidas(); await liberarRetenidas();
   const documentos=await pool.query('select codigo,datos from certificados_curso where curso_id=$1',[curso.id]);
   assert.equal(documentos.rowCount,1);
@@ -321,8 +322,10 @@ test('HU53-07: conserva referencia Culqi si falla la consulta y concilia sin cob
       if (!permitirConsulta) throw new Error('interrupción simulada');
       return new Response(JSON.stringify({object:'charge',id:referencia,amount:15050,currency_code:'PEN',response_code:'venta_exitosa',metadata}),{status:200});
     });restaurar=()=>llamada.mock.restore();
-    const respuesta=await llamar('alumno','POST',`/api/pagos/${alta.pagoId}/intentos`,{medio:'CULQI',clave:randomUUID(),token:'tkn_test_soloPruebas'});
-    assert.equal(respuesta.statusCode,503,respuesta.body);
+    // Simula una operación histórica anterior a la elección T-25. La API del
+    // participante ya no crea cargos Culqi; sí debe conciliar los existentes.
+    await assert.rejects(iniciarPago((await obtenerPago(alta.pagoId))!,Number(usuarios.get('alumno')!.id),
+      {medio:'CULQI',clave:randomUUID(),token:'tkn_test_soloPruebas'}),{statusCode:503});
     const operacion=(await llamar('alumno','GET',`/api/pagos/${alta.pagoId}`)).json().operaciones[0];
     assert.equal(operacion.referenciaExterna,referencia);
     assert.equal(operacion.estado,'INCIERTO');
@@ -404,7 +407,7 @@ test('HU53-18: tras reinscribirse conserva consulta de condiciones y pago del in
   const anterior=(await llamar('alumno','POST',ruta,{versionCobro:1})).json();
   await pool.query('update "intentosInscripcion" set "venceEn"=clock_timestamp()-interval \'1 second\' where id=$1',[anterior.intentoId]);
   const nueva=await llamar('alumno','POST',ruta,{versionCobro:1});assert.equal(nueva.statusCode,201,nueva.body);
-  await llamar('admin','POST',`/api/pagos/${anterior.pagoId}/efectivo`,{referencia:`HISTORIAL-${curso.id}`});
+  await llamar('admin','POST',`/api/pagos/${anterior.pagoId}/efectivo`,{referencia:`HISTORIAL-${curso.id}`,importeCentimos:15050,fechaRecepcion:'2026-01-01'});
   const historial=(await llamar('alumno','GET',`/api/colegiados/${usuarios.get('alumno')!.id}/historial`)).json();
   const fila=historial.cursos.find((item:{id:string})=>item.id===curso.id);
   assert.equal(fila.pagoId,nueva.json().pagoId);
