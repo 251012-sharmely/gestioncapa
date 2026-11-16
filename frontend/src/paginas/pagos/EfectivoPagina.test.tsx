@@ -12,6 +12,7 @@ it('HU53-06: muestra titular, importe exacto y confirmación explícita de recep
   const html=renderToStaticMarkup(<RegistroEfectivoFormulario pago={pago} ocupado={false} alRegistrar={async()=>{}} />)
   expect(html).toContain('Participante de prueba');expect(html).toContain('150.50');expect(html).toContain('He recibido el importe completo')
   expect(html).toContain('Referencia del recibo interno');expect(html).toContain('checkbox')
+  expect(html).toContain('Importe recibido (S/)');expect(html).toContain('Fecha de recepción')
 })
 it('HU53-07: bloquea efectivo mientras exista una operación externa incierta',()=>{
   const html=renderToStaticMarkup(<RegistroEfectivoFormulario pago={{...pago,operaciones:[{id:'op',medio:'CULQI',estado:'INCIERTO',referenciaExterna:null}]}} ocupado={false} alRegistrar={async()=>{}} />)

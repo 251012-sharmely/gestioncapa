@@ -905,3 +905,43 @@ Comprobación final: 705 pruebas aprobadas (312 unitarias backend, 312 de integr
 cero vulnerabilidades. Rutas/anclas, formato, nombres nuevos y hashes de contenido
 previo comprobados. No cambiaron manifiestos, workflows, índice Git ni HEAD.
 Los contenedores PostgreSQL/Redis temporales de T-25 se detuvieron al terminar.
+
+
+## Seguimiento HU-32 — implementación de vouchers, efectivo y correo
+
+Autorización explícita del usuario para implementar. Retención confirmada: tres
+meses desde decisión; pendientes desde subida. SMTP configurable y pruebas locales.
+
+- [x] H32-P01: RED/GREEN de formatos, tamaño, entradas y configuración.
+- [x] H32-P02: tablas, persistencia atómica, unicidad, descarga privada y roles.
+- [x] H32-P03: aprobación/rechazo, efectivo con importe/fecha y cola de correo.
+- [x] H32-P04: SMTP real local, comprobante PDF, reintentos y retención efectiva.
+- [x] H32-P05: frontend de voucher, revisión, descarga y registro de efectivo.
+- [x] H32-P06: suites, tipos sin build, lint, revisión y preparación de entrega manual.
+
+Siempre conservar las finanzas y las secciones previas. No se crean commits,
+etiquetas ni push; build manual pendiente. Resultados registrados a continuación.
+
+Resultados HU-32: 763 casos aprobados (324 unitarios backend, 326 integración,
+78 Vitest, 3 servidor frontend y 32 E2E reales en 2.4 min). Tipos backend/frontend/E2E
+y diff aprobados. Lint: cero errores, dos avisos previos sin supresiones. npm audit:
+cero vulnerabilidades; firmas/procedencia sin registros inválidos o ausentes.
+Se detectó una mutación de la validación y se restauró el archivo con sus pruebas verdes.
+
+RED/GREEN registrados: validación/SMTP inexistentes, API que no admitía archivo,
+efectivo sin metadatos, proceso de retención ausente, UI sin monto/fecha/correo,
+Message-ID alterado al cambiar remitente, aceptación de cuatro meses y falta de
+plazo total SMTP. La persistencia reveló inferencia incompatible smallint/integer
+en make_interval; se corrigió con cast explícito. La regresión anterior de T-25/HU-53
+se adaptó al contrato estricto sin eliminar comprobaciones financieras.
+
+DoD/seguridad: controles locales revisados y tres ciclos internos de diseño/código
+completados. Pendientes: build manual, revisión humana, staging/migración0031,
+cuenta BCP/SMTP productivos, entrega real y política de MVCC/WAL/copias/réplicas.
+La política previa sin lockfile sigue impidiendo instalación congelada reproducible.
+Commits de HU-32 creados: ninguno. Base local v3.0.0.0.0; propuesta condicional
+v4.0.0.0.0 para la entrega completa por exigir voucher e importe/fecha en la API.
+
+Enlaces locales y nombres nuevos verificados. Los prefijos previos de SPEC.md,
+plan.md y todo.md coinciden con HEAD. Se detuvieron únicamente los dos contenedores
+efímeros HU32 identificados por etiqueta; ninguna base real fue modificada.

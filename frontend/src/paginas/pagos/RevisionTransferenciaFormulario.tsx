@@ -5,6 +5,7 @@ import { Campo } from '@/components/ui/Campo'
 import { Entrada } from '@/components/ui/Entrada'
 import { mensajeDeError } from '@/lib/api'
 import { pagos,type Pago,type TransferenciaPago,type RevisionTransferencia } from '@/servicios/pagos'
+import { ArchivoVoucher } from './ArchivoVoucher'
 
 export function RevisionTransferenciaFormulario({pago,transferencia,alActualizar}:{pago:Pago;transferencia:TransferenciaPago;alActualizar:()=>Promise<void>}) {
   const [verificado,cambiarVerificado]=useState(false)
@@ -21,6 +22,7 @@ export function RevisionTransferenciaFormulario({pago,transferencia,alActualizar
       <div><dt className="font-semibold">Destino mostrado al participante</dt><dd>{transferencia.banco} · {transferencia.titular}<br />Cuenta {transferencia.cuenta} · CCI {transferencia.cci}</dd></div>
       <div><dt className="font-semibold">Referencia y fecha declaradas</dt><dd>{transferencia.referencia} · {transferencia.fechaOperacion}</dd></div>
     </dl>
+    <ArchivoVoucher pagoId={pago.id} transferencia={transferencia} alActualizar={alActualizar} />
     {terminal ? <p role="status">
       {transferencia.estado==='CONFIRMADO' && 'Abono confirmado.'}
       {transferencia.estado==='RECHAZADO' && `Transferencia rechazada: ${transferencia.motivoRechazo}`}
@@ -39,7 +41,7 @@ export function RevisionTransferenciaFormulario({pago,transferencia,alActualizar
         revisar.mutate({decision:'CONFIRMAR',verificado:true,importeCentimos,moneda:'PEN',
           referencia:String(datos.get('referencia')??'').trim(),fechaOperacion:String(datos.get('fechaOperacion')??'')})
       }}>
-        <fieldset disabled={revisar.isPending} className="space-y-3">
+        <fieldset disabled={revisar.isPending||transferencia.voucher?.disponible===false} className="space-y-3">
           <Campo etiqueta="Importe abonado (S/)" ayuda="Copia el importe del abono bancario; debe cubrir el importe completo." obligatorio><Entrada name="importe" type="number" min="0.01" max="9999999999.99" step="0.01" required /></Campo>
           <Campo etiqueta="Referencia bancaria verificada" obligatorio><Entrada name="referencia" defaultValue={transferencia.referencia} minLength={3} maxLength={100} required /></Campo>
           <Campo etiqueta="Fecha bancaria verificada" obligatorio><Entrada name="fechaOperacion" type="date" defaultValue={transferencia.fechaOperacion} required /></Campo>

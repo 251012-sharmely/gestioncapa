@@ -312,7 +312,10 @@ La primera cuenta ofrecida se conserva por obligación incluso al recargar o
 cambiar configuración. Los destinos nuevos usan la configuración vigente.
 Deshabilitar el flag deja de ofrecer cuentas a nuevas obligaciones, pero permite
 declarar abonos ya hechos a destinos anteriores; la interfaz indica no pagar otra vez.
-No se suben vouchers ni se confirma un pago por declarar una referencia.
+HU-32 añade voucher obligatorio en nuevas declaraciones y conserva las históricas
+sin archivo. Declarar una referencia nunca confirma un pago. El efectivo exige
+importe recibido y fecha; el servidor verifica ambos, también en reintentos.
+Consulta [vouchers, correo y retención](pagosTransferenciaEfectivo.md).
 
 La declaración queda `DECLARADO`, bloquea nuevos cargos/efectivo y entrega de sesión
 Izipay. Puede coexistir con una operación iniciada antes de declarar: sus resultados

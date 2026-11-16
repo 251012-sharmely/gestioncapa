@@ -6,7 +6,8 @@ import { Entrada, Selector } from '@/components/ui/Entrada'
 import { Boton } from '@/components/ui/Boton'
 import { Cargando, ErrorCarga } from '@/components/ui/Estados'
 import { mensajeDeError } from '@/lib/api'
-import { pagos } from '@/servicios/pagos'
+import { pagos,pagoNecesitaActualizacion,type RecepcionEfectivo } from '@/servicios/pagos'
+import { EstadoCorreosPago } from './ArchivoVoucher'
 import { RegistroEfectivoFormulario } from './RegistroEfectivoFormulario'
 import { RevisionTransferenciaFormulario } from './RevisionTransferenciaFormulario'
 
@@ -16,13 +17,14 @@ export function EfectivoPagina() {
   const valido=/^[1-9]\d{0,14}$/.test(seleccion)
   const cache=useQueryClient()
   const [operacionId,cambiarOperacion]=useState('')
-  const consulta=useQuery({queryKey:['pago',seleccion],queryFn:()=>pagos.obtener(seleccion),enabled:valido})
+  const consulta=useQuery({queryKey:['pago',seleccion],queryFn:()=>pagos.obtener(seleccion),enabled:valido,
+    refetchInterval:query=>query.state.data&&pagoNecesitaActualizacion(query.state.data)?3000:false})
   const operacionesExternas=consulta.data?.operaciones.filter(op=>op.medio==='IZIPAY'||op.medio==='CULQI')??[]
   const primeraOperacion=operacionesExternas[0]?.id??''
   const actualizar=async()=>{
     await Promise.all([cache.invalidateQueries({queryKey:['pago']}),cache.invalidateQueries({queryKey:['curso']}),cache.invalidateQueries({queryKey:['historial']})])
   }
-  const registrar=useMutation({mutationFn:(referencia:string)=>pagos.efectivo(seleccion,referencia),onSuccess:actualizar})
+  const registrar=useMutation({mutationFn:(entrada:RecepcionEfectivo)=>pagos.efectivo(seleccion,entrada),onSuccess:actualizar})
   const conciliar=useMutation({mutationFn:(referencia:string)=>pagos.conciliar(seleccion,operacionId||primeraOperacion,referencia||undefined),onSuccess:actualizar})
   return <div className="mx-auto max-w-200 space-y-5 px-4 py-8">
     <h1 className="text-2xl font-bold">Gestión de pagos</h1>
@@ -38,6 +40,7 @@ export function EfectivoPagina() {
     {valido && consulta.isError && <ErrorCarga mensaje={mensajeDeError(consulta.error,'No pudimos consultar esta referencia.')} onReintentar={consulta.refetch} />}
     {consulta.data && <>
       {consulta.data.estado==='PAGADO' && <p role="status" className="rounded-lg bg-brand-soft p-3">Pago confirmado · Comprobante interno #{consulta.data.id}.</p>}
+      <EstadoCorreosPago notificaciones={consulta.data.notificaciones} />
       <RegistroEfectivoFormulario key={seleccion} pago={consulta.data} ocupado={registrar.isPending} alRegistrar={referencia=>registrar.mutate(referencia)} />
       {registrar.isError && <p role="alert" className="text-danger">{mensajeDeError(registrar.error,'No pudimos registrar la recepción.')}</p>}
       {consulta.data.transferencias.map(transferencia=><RevisionTransferenciaFormulario key={transferencia.operacionId} pago={consulta.data} transferencia={transferencia} alActualizar={actualizar} />)}

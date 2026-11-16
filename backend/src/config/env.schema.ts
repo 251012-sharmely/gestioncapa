@@ -64,6 +64,16 @@ const envSchema = z.object({
   transferenciaTitular: z.string().trim().min(3).max(160).optional(),
   transferenciaCuenta: z.string().regex(/^\d{6,34}$/).optional(),
   transferenciaCci: z.string().regex(/^\d{20}$/).optional(),
+  voucherRetencionMeses: z.coerce.number().refine(valor=>valor===3,'la política acordada conserva vouchers tres meses').default(3),
+  correoPlazoEnvioMs: z.coerce.number().int().min(100).max(60000).default(60000),
+  correoHabilitado: booleanFromEnv.default(false),
+  correoServidor: z.string().regex(/^[a-zA-Z0-9.-]+$/).max(253).optional(),
+  correoPuerto: z.coerce.number().int().min(1).max(65535).default(587),
+  correoSeguro: booleanFromEnv.default(false),
+  correoUsuario: z.string().min(1).max(180).optional(),
+  correoClave: z.string().min(1).max(1024).optional(),
+  correoRemitente: z.email().max(180).optional(),
+  correoSinTlsParaPruebas: booleanFromEnv.default(false),
   izipayHabilitado: booleanFromEnv.default(false),
   izipayCodigoComercio: z.string().min(1).max(15).optional(),
   izipayClavePublica: z.string().min(16).max(400).optional(),
@@ -100,6 +110,13 @@ export class EnvError extends Error {
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const result = envSchema.superRefine((configuracion, contexto) => {
+    if(configuracion.correoSinTlsParaPruebas&&(configuracion.NODE_ENV!=='test'||!['127.0.0.1','localhost'].includes(configuracion.correoServidor??''))) contexto.addIssue({code:'custom',path:['correoSinTlsParaPruebas'],message:'solo se permite SMTP sin TLS en loopback de pruebas'});
+    if(configuracion.correoHabilitado) {
+      for(const nombre of ['correoServidor','correoRemitente',...(configuracion.correoSinTlsParaPruebas?[]:['correoUsuario','correoClave'] as const)] as const) {
+        const valor=configuracion[nombre];
+        if(!valor||esValorDeEjemplo(valor)) contexto.addIssue({code:'custom',path:[nombre],message:'configura el servicio SMTP antes de habilitar correo'});
+      }
+    }
     if (configuracion.transferenciaHabilitada) {
       for (const nombre of ['transferenciaBanco','transferenciaTitular','transferenciaCuenta','transferenciaCci'] as const) {
         if (!configuracion[nombre] || esValorDeEjemplo(configuracion[nombre])) contexto.addIssue({code:'custom',path:[nombre],message:'configura el destino institucional antes de habilitar transferencias'});

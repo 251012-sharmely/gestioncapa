@@ -50,3 +50,13 @@ it('T25-I08: una transferencia incierta se muestra para conciliación, sin anunc
     transferencias:[{operacionId:'banco',estado:'INCIERTO',referencia:'ABONO-1',fechaOperacion:'2026-01-01',motivoRechazo:null}]})
   expect(html).toContain('Requiere conciliación');expect(html).not.toContain('· Confirmada')
 })
+it('HU32-01/02: muestra orden y permite adjuntar voucher JPG/PNG/PDF con retención informada',()=>{
+  const html=mostrar()
+  expect(html).toContain('Orden de pago #123');expect(html).toContain('type="file"')
+  expect(html).toContain('image/png');expect(html).toContain('application/pdf');expect(html).toContain('tres meses')
+})
+it('HU32-04/07: ofrece descarga privada y estado del correo sin revelar el destinatario',()=>{
+  const html=mostrar({transferencias:[{operacionId:'banco',estado:'DECLARADO',referencia:'BCP-1',fechaOperacion:'2026-01-01',motivoRechazo:null,
+    voucher:{id:'archivo',version:1,tipo:'application/pdf',tamano:512,disponible:true}}],notificaciones:[{id:'correo',tipo:'COMPROBANTE',estado:'PENDIENTE',intentos:1}]})
+  expect(html).toContain('Descargar voucher');expect(html).toContain('En revisión');expect(html).toContain('Correo pendiente')
+})

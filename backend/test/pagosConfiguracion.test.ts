@@ -30,3 +30,16 @@ test('T25-I02: transferencia apagada exige destino institucional completo al hab
     assert.throws(() => parseEnv({ ...base,...destino,...cambio }));
   }
 });
+test('HU32-07/08: retención de tres meses y SMTP apagado; TLS obligatorio fuera de prueba local',()=>{
+  assert.equal(parseEnv(base).voucherRetencionMeses,3);
+  assert.equal(parseEnv(base).correoHabilitado,false);
+  assert.equal(parseEnv(base).correoPlazoEnvioMs,60000);
+  assert.throws(()=>parseEnv({...base,correoPlazoEnvioMs:'120000'}));
+  assert.throws(()=>parseEnv({...base,correoHabilitado:'true'}));
+  assert.throws(()=>parseEnv({...base,voucherRetencionMeses:'0'}));
+  assert.throws(()=>parseEnv({...base,voucherRetencionMeses:'4'}));
+  const correo={correoHabilitado:'true',correoServidor:'127.0.0.1',correoPuerto:'2525',correoRemitente:'pagos@prueba.local',correoSinTlsParaPruebas:'true'};
+  assert.doesNotThrow(()=>parseEnv({...base,...correo,NODE_ENV:'test'}));
+  assert.throws(()=>parseEnv({...base,...correo,NODE_ENV:'production'}));
+  assert.throws(()=>parseEnv({...base,...correo,NODE_ENV:'test',correoServidor:'smtp.externo.test'}));
+});

@@ -3,15 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Boton } from '@/components/ui/Boton'
 import { Cargando, ErrorCarga } from '@/components/ui/Estados'
 import { mensajeDeError } from '@/lib/api'
-import { pagos } from '@/servicios/pagos'
+import { pagos,pagoNecesitaActualizacion } from '@/servicios/pagos'
 import { abrirIzipay } from '@/servicios/izipay'
 import { TransferenciaCurso } from '../pagos/TransferenciaCurso'
+import { EstadoCorreosPago } from '../pagos/ArchivoVoucher'
 
 export function PagoCurso({pagoId}:{pagoId:string}) {
   const cache=useQueryClient()
   const [error,cambiarError]=useState('')
   const consulta=useQuery({queryKey:['pago',pagoId],queryFn:()=>pagos.obtener(pagoId),
-    refetchInterval:query=>query.state.data && (query.state.data.estado==='PENDIENTE'||query.state.data.operaciones.some(op=>['INICIADO','INCIERTO','DECLARADO'].includes(op.estado)))?3000:false})
+    refetchInterval:query=>query.state.data&&pagoNecesitaActualizacion(query.state.data)?3000:false})
   const refrescar=async()=>{
     await consulta.refetch()
     await Promise.all(['curso','historial','participante'].map(clave=>cache.invalidateQueries({queryKey:[clave]})))
@@ -39,6 +40,7 @@ export function PagoCurso({pagoId}:{pagoId:string}) {
   if (pago.estado==='PAGADO') return <section className={tarjeta} aria-label="Estado de pago">
     <h2 className="font-semibold text-brand">Pago confirmado</h2>
     <p>{importe} · Comprobante interno #{pago.id}.</p>
+    <EstadoCorreosPago notificaciones={pago.notificaciones} />
     {pago.incidencias.length>0 && <p role="status">El CPPP debe revisar este pago antes de aplicar cambios a tu reserva.</p>}
     {pago.destinoTransferencia && <details open={pago.transferencias.some(transferencia=>transferencia.estado==='DECLARADO')}>
       <summary className="cursor-pointer text-sm font-semibold">Consultar transferencias o declarar un abono ya realizado</summary>
@@ -48,6 +50,7 @@ export function PagoCurso({pagoId}:{pagoId:string}) {
   if (!pago.exigible) return <section className={tarjeta} aria-label="Estado de pago">
     <h2 className="font-semibold">Reserva no vigente</h2>
     <p>Esta reserva no está vigente. Revisa el curso y sus cupos antes de solicitar una nueva inscripción.</p>
+    <EstadoCorreosPago notificaciones={pago.notificaciones} />
     <TransferenciaCurso key={pago.id} pago={pago} alActualizar={refrescar} />
   </section>
   return <section className={tarjeta} aria-label="Pago del curso">
@@ -64,5 +67,6 @@ export function PagoCurso({pagoId}:{pagoId:string}) {
     <p className="text-sm">También puedes pagar en la oficina del CPPP. Indica la referencia #{pago.id}; el administrador registrará la recepción.</p>
     <TransferenciaCurso key={pago.id} pago={pago} alActualizar={refrescar} />
     {error && <p role="alert" className="text-danger">{error}</p>}
+    <EstadoCorreosPago notificaciones={pago.notificaciones} />
   </section>
 }
