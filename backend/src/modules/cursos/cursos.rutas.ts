@@ -4,6 +4,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { pool } from '../../shared/database.js';
 import { crearCurso, guardarMaterial, inscribirseEnCurso, paginaCatalogo, listarCursos, obtenerArchivo, obtenerCurso, publicarCurso } from './cursos.repositorio.js';
 import { esquemaCurso, esquemaMaterial, esquemaConsultaCatalogo, idCurso } from './cursos.validacion.js';
+import { esquemaCambioCobro } from './cursos.cobro.js';
+import { actualizarCobro, obtenerMiInscripcion } from './cursos.repositorio.js';
+import { entradaInscripcion } from './cursos.cobro.js';
+import { puedeAccederContenido } from './cursos.acceso.js';
 
 type ConId = FastifyRequest<{ Params: { id: string; moduloId?: string; materialId?: string } }>;
 const error = (reply: FastifyReply, status: number, code: string, message: string) => reply.code(status).send({ code, message });
@@ -22,15 +26,22 @@ async function cursoAutorizado(request: ConId, reply: FastifyReply) {
 }
 
 export async function registrarCursos(app: FastifyInstance) {
+  app.patch('/api/cursos/:id/cobro', async (request: ConId, reply) => {
+    const curso = await cursoAutorizado(request, reply);
+    if (!curso) return reply;
+    const datos = esquemaCambioCobro.parse(request.body);
+    if (!await actualizarCobro(curso.id, datos)) return error(reply, 409, 'COBRO_MODIFICADO', 'El curso está cerrado o sus condiciones cambiaron. Recarga antes de guardar.');
+    return obtenerCurso(curso.id);
+  });
   app.get('/api/publico/cursos', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     const consulta = esquemaConsultaCatalogo.parse(request.query);
     const pagina = await paginaCatalogo(0, consulta, true);
     // Lista explícita: nunca publicar inscritos ni materiales.
     return { ...pagina, items: pagina.items.map(({ id, titulo, descripcion, instructorNombre,
-      horasLectivas, modalidad, costo, cupos, cuposDisponibles, categoria, fechaInicio, fechaFin }) =>
+      horasLectivas, modalidad, costo, cupos, cuposDisponibles, categoria, fechaInicio, fechaFin, modalidadCobro, plazoPagoMinutos, versionCobro }) =>
       ({ id, titulo, descripcion, instructorNombre, horasLectivas, modalidad, costo, cupos,
-        cuposDisponibles, categoria, fechaInicio, fechaFin })) };
+        cuposDisponibles, categoria, fechaInicio, fechaFin, modalidadCobro, plazoPagoMinutos, versionCobro })) };
   });
   app.get('/api/cursos/instructores', async request => {
     return (await pool.query(`select id::text,name as nombre from users where role='instructor' and active order by name`)).rows;
@@ -47,14 +58,19 @@ export async function registrarCursos(app: FastifyInstance) {
   });
   app.post('/api/cursos/:id/inscribirme', async (request: ConId, reply) => {
     if (!idCurso.safeParse(request.params.id).success) return error(reply, 404, 'CURSO_NO_EXISTE', 'El curso no existe.');
-    const resultado = await inscribirseEnCurso(request.params.id, request.usuario!.id);
+    const {versionCobro}=entradaInscripcion.parse(request.body ?? {});
+    const resultado = await inscribirseEnCurso(request.params.id, request.usuario!.id,versionCobro);
+    if (resultado==='COBRO_NO_CONFIGURADO') return error(reply,409,resultado,'El administrador debe configurar las condiciones de cobro antes de nuevas inscripciones.');
+    if (resultado==='COBRO_MODIFICADO') return error(reply,409,resultado,'Las condiciones cambiaron. Recarga el curso y confírmalas antes de inscribirte.');
     if (resultado === 'NO_EXISTE') return error(reply, 404, 'CURSO_NO_EXISTE', 'El curso no existe.');
     if (resultado === 'SIN_PERMISO') return error(reply, 403, 'SIN_PERMISO', 'No tienes permiso para inscribirte en este curso.');
     if (resultado === 'NO_PUBLICADO') return error(reply, 409, 'CURSO_NO_PUBLICADO', 'El curso no está publicado.');
     if (resultado === 'SIN_CUPOS') return error(reply, 409, 'SIN_CUPOS', 'El curso está sin cupos. Elige otra capacitación.');
     const nueva = resultado === 'INSCRITO' || resultado === 'INSCRITO_PENDIENTE';
     const estados = { INSCRITO: 'EN_CURSO', YA_INSCRITO: 'EN_CURSO', YA_TERMINADO: 'TERMINADO', INSCRITO_PENDIENTE: 'PENDIENTE_PAGO', YA_PENDIENTE: 'PENDIENTE_PAGO' };
-    return reply.header('Cache-Control', 'private, no-store').code(nueva ? 201 : 200).send({ cursoId: request.params.id, estado: estados[resultado], yaInscrito: !nueva });
+    const inscripcion=await obtenerMiInscripcion(request.params.id,request.usuario!.id);
+    return reply.header('Cache-Control', 'private, no-store').code(nueva ? 201 : 200).send({ cursoId: request.params.id, estado: estados[resultado], yaInscrito: !nueva,
+      intentoId:inscripcion?.intentoId??null,pagoId:inscripcion?.pagoId??null,venceEn:inscripcion?.venceEn??null });
   });
   app.post('/api/cursos', async (request, reply) => {
     const datos = esquemaCurso.parse(request.body);
@@ -62,7 +78,13 @@ export async function registrarCursos(app: FastifyInstance) {
     if (!id) return reply.code(422).send({ code: 'VALIDACION', message: 'Selecciona un instructor activo del CPPP.', fields: { instructorId: 'El instructor no está disponible.' } });
     return reply.code(201).send(await obtenerCurso(id));
   });
-  app.get('/api/cursos/:id', async (request: ConId, reply) => await cursoAutorizado(request, reply) ?? reply);
+  app.get('/api/cursos/:id', async (request: ConId, reply) => {
+    const curso=await cursoAutorizado(request,reply);
+    if (!curso) return reply;
+    const accesoContenido=await puedeAccederContenido(curso.id,request.usuario!);
+    return reply.header('Cache-Control','private, no-store').send({...curso,accesoContenido,
+      modulos:accesoContenido?curso.modulos:[]});
+  });
   app.get('/api/cursos/:id/mi-asistencia', async (request: ConId, reply) => {
     const curso = await cursoAutorizado(request, reply);
     if (!curso) return reply;
@@ -103,6 +125,7 @@ export async function registrarCursos(app: FastifyInstance) {
     const curso = await cursoAutorizado(request, reply);
     if (!curso) return reply;
     if (!idCurso.safeParse(request.params.moduloId).success || !idCurso.safeParse(request.params.materialId).success) return error(reply, 404, 'MATERIAL_NO_EXISTE', 'El archivo no existe.');
+    if (!await puedeAccederContenido(curso.id,request.usuario!)) return error(reply,403,'CONTENIDO_NO_DISPONIBLE','Necesitas una inscripción confirmada para acceder al contenido.');
     const archivo = await obtenerArchivo(curso.id, request.params.moduloId!, request.params.materialId!);
     if (!archivo) return error(reply, 404, 'MATERIAL_NO_EXISTE', 'El archivo no existe en este módulo.');
     return reply.header('Cache-Control', 'private, no-store').header('Content-Disposition', 'attachment; filename="material.pdf"').type('application/pdf').send(archivo);

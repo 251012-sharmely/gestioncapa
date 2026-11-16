@@ -4,12 +4,18 @@ import type { EstadoCertificado } from './certificados'
 
 export type MaterialCurso = { id: string; titulo: string; tipo: 'PDF' | 'ENLACE' | 'VIDEO'; url: string | null }
 export type ModuloCurso = { id: string; titulo: string; orden: number; materiales: MaterialCurso[] }
+export type ModalidadCobro = 'PREVIO' | 'CERTIFICADO' | 'GRATUITO'
+export type PoliticaCobro = { modalidadCobro: ModalidadCobro | ''; costo: number; plazoPagoMinutos: number | null }
 export type Curso = {
+  modalidadCobro?: ModalidadCobro | null; plazoPagoMinutos?: number | null; versionCobro?: number;
   id: string; titulo: string; descripcion: string; instructorId: string; instructorNombre: string;
   horasLectivas: number; modalidad: 'PRESENCIAL' | 'VIRTUAL' | 'HIBRIDA'; costo: number; cupos: number;
   categoria: string; fechaInicio: string | null; fechaFin: string | null; cuposDisponibles: number; inscrito?: boolean;
   tipoCertificado: 'PARTICIPACION' | 'APROBACION'; notaMinima: number; estado: 'BORRADOR' | 'PUBLICADO' | 'CERRADO';
-  estadoInscripcion?: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO' | null;
+  estadoInscripcion?: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO' | 'CANCELADA' | null;
+  accesoContenido?: boolean;
+  miInscripcion?: { intentoId:string;modalidadCobro:ModalidadCobro;importeCentimos:number;moneda:'PEN';plazoPagoMinutos:number|null;
+    inscritoEn:string;venceEn:string|null;pagoId:string|null;estado:string;estadoFinanciero:string;estadoEntrega?:string|null } | null;
   requisitoAsistencia: number;
 }
 export const categoriasCatalogo = ['Educación', 'General', 'Seguridad y salud', 'Tecnología'] as const
@@ -22,9 +28,11 @@ export type FilaCierre = { agremiado: { id: string; nombre: string }; presentes:
 export type CierreCurso = { curso: DetalleCurso; requisitoAsistencia: number; filas: FilaCierre[] }
 export type ExcepcionCierre = { agremiadoId: string; motivo: string }
 export type FilaCertificado = { agremiado: { id: string; nombre: string }; cumple: boolean; porExcepcion: boolean;
+  entrega?:{estado:'RETENIDA'|'EMITIDA';pagoId:string;estadoPago:'PENDIENTE'|'PAGADO'}|null;
   certificado: { codigo: string; estado: EstadoCertificado; nombre: string } | null }
 export type CertificadosCurso = { curso: DetalleCurso; filas: FilaCertificado[] }
 export type CursoEntrada = Pick<Curso, 'titulo' | 'descripcion' | 'instructorId' | 'horasLectivas' | 'modalidad' | 'costo' | 'cupos' | 'tipoCertificado'> & {
+  modalidadCobro?: ModalidadCobro; plazoPagoMinutos?: number | null;
   categoria?: string; fechaInicio?: string | null; fechaFin?: string | null;
   notaMinima?: number; modulos: ModuloEntrada[]
 }
@@ -45,7 +53,7 @@ export function leerPdfBase64(archivo: File): Promise<string> {
 }
 export type MaterialEntrada = { titulo: string } & ({ tipo: 'PDF'; contenidoBase64: string } | { tipo: 'ENLACE' | 'VIDEO'; url: string })
 export type FiltrosCatalogo = { buscar?: string; modalidad?: string; categoria?: string; pagina?: number; tamanoPagina?: number }
-export type CursoPublico = Pick<Curso, 'id' | 'titulo' | 'descripcion' | 'instructorNombre' | 'horasLectivas' | 'modalidad' | 'costo' | 'cupos' | 'cuposDisponibles' | 'categoria' | 'fechaInicio' | 'fechaFin'>
+export type CursoPublico = Pick<Curso, 'id' | 'titulo' | 'descripcion' | 'instructorNombre' | 'horasLectivas' | 'modalidad' | 'costo' | 'cupos' | 'cuposDisponibles' | 'categoria' | 'fechaInicio' | 'fechaFin' | 'modalidadCobro' | 'plazoPagoMinutos' | 'versionCobro'>
 export type PaginaCatalogo<T = Curso> = { items: T[]; total: number; pagina: number; tamanoPagina: number; totalPaginas: number; categorias: string[] }
 /** Porcentaje de asistencia que pide el Figma cuando el curso no indica otro */
 export const REQUISITO_ASISTENCIA_POR_DEFECTO = 80
@@ -61,9 +69,11 @@ function conValoresNuevos<T extends Curso>(curso: T): T & { sesiones: SesionCurs
 }
 
 export const cursos = {
+  actualizarCobro: async (id: string, entrada: PoliticaCobro & { versionCobro: number }) =>
+    conValoresNuevos((await api.patch<DetalleCurso>(`/cursos/${id}/cobro`, entrada)).data),
   publico: async (filtros: FiltrosCatalogo) => (await api.get<PaginaCatalogo<CursoPublico>>('/publico/cursos', { params: filtros })).data,
   catalogo: async (filtros: FiltrosCatalogo) => (await api.get<PaginaCatalogo>('/catalogo/cursos/pagina', { params: filtros })).data,
-  inscribirme: async (id: string) => (await api.post<{ cursoId: string; estado: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO'; yaInscrito: boolean }>(`/cursos/${id}/inscribirme`)).data,
+  inscribirme: async (id: string,versionCobro?:number) => (await api.post<{ cursoId: string; estado: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO'; yaInscrito: boolean }>(`/cursos/${id}/inscribirme`,{versionCobro})).data,
   programarSesion: async (id: string, entrada: SesionEntrada) => (await api.post<SesionCurso>(`/cursos/${id}/sesiones`, entrada)).data,
   miAsistencia: async (id: string) => (await api.get<AsistenciaCurso>(`/cursos/${id}/mi-asistencia`)).data,
   listar: async (catalogo = false) => (await api.get<Curso[]>(catalogo ? '/catalogo/cursos' : '/cursos')).data,
@@ -75,9 +85,9 @@ export const cursos = {
   publicar: async (id: string) => conValoresNuevos((await api.post<DetalleCurso>(`/cursos/${id}/publicar`)).data),
   material: async (id: string, moduloId: string, entrada: MaterialEntrada) => (await api.post<MaterialCurso>(`/cursos/${id}/modulos/${moduloId}/materiales`, entrada)).data,
   cierre: async (id: string) => (await api.get<CierreCurso>(`/cursos/${id}/cierre`)).data,
-  cerrar: async (id: string, excepciones: ExcepcionCierre[]) => (await api.post<{ emitidos: number }>(`/cursos/${id}/cerrar`, { excepciones })).data,
+  cerrar: async (id: string, excepciones: ExcepcionCierre[]) => (await api.post<{ emitidos: number;retenidos?:number }>(`/cursos/${id}/cerrar`, { excepciones })).data,
   certificados: async (id: string) => (await api.get<CertificadosCurso>(`/cursos/${id}/certificados`)).data,
-  emitirExcepcion: async (id: string, agremiadoId: string, motivo: string) => (await api.post<{ codigo: string }>(`/cursos/${id}/excepciones`, { agremiadoId, motivo })).data,
+  emitirExcepcion: async (id: string, agremiadoId: string, motivo: string) => (await api.post<{ codigo: string|null;retenida?:boolean;pagoId?:string }>(`/cursos/${id}/excepciones`, { agremiadoId, motivo })).data,
   anularCertificado: async (codigo: string, motivo: string) => { await api.post(`/certificados/${encodeURIComponent(codigo)}/anular`, { motivo }) },
   corregirCertificado: async (codigo: string, nombre: string, motivo: string) =>
     (await api.post<{ codigo: string }>(`/certificados/${encodeURIComponent(codigo)}/corregir`, { nombre, motivo })).data,

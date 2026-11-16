@@ -131,6 +131,8 @@ export async function conClaseBloqueada<T>(claseId: number, trabajo: (consultor:
   const cliente = await pool.connect();
   try {
     await cliente.query("begin");
+    // El curso se bloquea antes de la clase, como en pago y cierre.
+    await cliente.query('select c.id from cursos c join classes s on s.curso_id=c.id where s.id=$1 for share of c',[claseId]);
     await cliente.query("select id from classes where id = $1 for share", [claseId]);
     const resultado = await trabajo(cliente);
     await cliente.query("commit");
@@ -201,7 +203,7 @@ export async function inscribir(claseId: number, participanteId: string) {
     const resultado = await cliente.query(
       `insert into enrollments (class_id, user_id)
        select $1, $2 from classes where id = $1 and estado = 'PROGRAMADA'
-         and (curso_id is null or exists(select 1 from users where id=$2 and active and role='agremiado'))
+         and (curso_id is null or (exists(select 1 from users where id=$2 and active and role='agremiado') and "tieneAccesoCurso"(curso_id,$2)))
        on conflict do nothing`,
       [claseId, participanteId]
     );

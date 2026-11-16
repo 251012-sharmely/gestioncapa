@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, GripVertical } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ import { Etiqueta, EtiquetaEstadoCurso } from '@/components/ui/Etiqueta'
 import { esApiError, mensajeDeError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { fechaCorta, rangoHorario } from '@/lib/formato'
+import { CobroCursoFormulario, EditarCobroCurso } from './CobroCursoFormulario'
 import {
   CATEGORIAS_CURSO,
   CERTIFICADOS_CURSO,
@@ -42,9 +43,15 @@ const esquema = z
     fechaFin: z.string().min(1, 'Ingresa la fecha de fin.'),
     horasLectivas: numero('Ingresa las horas lectivas.').gt(0, 'Las horas lectivas deben ser mayores que 0.').max(10000),
     costo: numero('Ingresa el costo; usa 0.00 si es gratuito.').min(0, 'El costo no puede ser negativo.').multipleOf(0.01, 'Usa como máximo dos decimales.'),
+    modalidadCobro: z.enum(['PREVIO', 'CERTIFICADO', 'GRATUITO'], { error: 'Selecciona la modalidad de cobro.' }),
+    plazoPagoMinutos: z.number().int().min(1).max(525600).nullable(),
     cupos: numero('Ingresa los cupos.').int('Los cupos deben ser un número entero.').min(1, 'Debe haber al menos 1 cupo.').max(1000000),
     tipoCertificado: z.enum(['PARTICIPACION', 'APROBACION'], { error: 'Selecciona el tipo de certificado.' }),
     notaMinima: numero('Ingresa la nota mínima.').min(0, 'La nota mínima va de 0 a 20.').max(20, 'La nota mínima va de 0 a 20.'),
+  })
+  .superRefine((datos, contexto) => {
+    if ((datos.modalidadCobro === 'GRATUITO') !== (datos.costo === 0)) contexto.addIssue({ code: 'custom', path: ['costo'], message: 'El importe debe ser cero solo si es gratuito.' })
+    if ((datos.modalidadCobro === 'PREVIO') !== (datos.plazoPagoMinutos !== null)) contexto.addIssue({ code: 'custom', path: ['plazoPagoMinutos'], message: 'Indica un plazo válido solo para pago previo.' })
   })
   .refine((d) => !d.fechaInicio || !d.fechaFin || d.fechaFin >= d.fechaInicio, {
     path: ['fechaFin'],
@@ -67,12 +74,15 @@ const valoresDe = (curso?: DetalleCurso): Partial<Formulario> =>
         fechaFin: curso.fechaFin ?? '',
         horasLectivas: curso.horasLectivas,
         costo: curso.costo,
+        modalidadCobro: curso.modalidadCobro ?? '' as Formulario['modalidadCobro'],
+        plazoPagoMinutos: curso.plazoPagoMinutos ?? null,
         cupos: curso.cupos,
         tipoCertificado: curso.tipoCertificado,
         notaMinima: curso.notaMinima,
       }
     : // Selectores sin opción elegida, como en el Figma; zod rechaza el valor vacío
-      { categoria: '', modalidad: '' as Formulario['modalidad'], instructorId: '', tipoCertificado: 'PARTICIPACION', notaMinima: 14 }
+      { categoria: '', modalidad: '' as Formulario['modalidad'], instructorId: '', tipoCertificado: 'PARTICIPACION', notaMinima: 14,
+        modalidadCobro: '' as Formulario['modalidadCobro'], plazoPagoMinutos: null }
 
 const modulosDe = (curso?: DetalleCurso): ModuloBorrador[] =>
   (curso?.modulos ?? []).toSorted((a, b) => a.orden - b.orden).map((m) => ({ clave: m.id, id: m.id, titulo: m.titulo }))
@@ -152,8 +162,11 @@ function FormularioCurso({ curso }: { curso?: DetalleCurso }) {
     handleSubmit,
     reset,
     setError,
+    setValue,
+    control,
     formState: { errors },
   } = useForm<Formulario>({ resolver: zodResolver(esquema), defaultValues: valoresDe(curso) })
+  const [modalidadCobro, costo, plazoPagoMinutos] = useWatch({ control, name: ['modalidadCobro', 'costo', 'plazoPagoMinutos'] })
 
   const guardar = useMutation({
     mutationFn: async ({ datos, publicar }: { datos: Formulario; publicar: boolean }) => {
@@ -240,6 +253,8 @@ function FormularioCurso({ curso }: { curso?: DetalleCurso }) {
         )
       ) : null}
 
+      {curso && <EditarCobroCurso key={`${curso.id}-${curso.versionCobro}`} curso={curso} />}
+
       <form id="formulario-curso" noValidate onSubmit={enviar(false)} className="contents">
         <fieldset disabled={guardar.isPending} className={cn(tarjeta, 'min-w-0 gap-4')}>
           <h2 className="font-serif text-xl font-bold text-ink">Datos del curso</h2>
@@ -304,12 +319,15 @@ function FormularioCurso({ curso }: { curso?: DetalleCurso }) {
               <Entrada type="date" estado={estado('fechaFin')} {...register('fechaFin')} />
             </Campo>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          {!curso && <CobroCursoFormulario valor={{ modalidadCobro, costo, plazoPagoMinutos }}
+            alCambiar={valor => {
+              setValue('modalidadCobro', valor.modalidadCobro as Formulario['modalidadCobro'])
+              setValue('costo', valor.costo)
+              setValue('plazoPagoMinutos', valor.plazoPagoMinutos)
+            }} errores={{ modalidadCobro: errors.modalidadCobro?.message, costo: errors.costo?.message, plazoPagoMinutos: errors.plazoPagoMinutos?.message }} />}
+          <div className="grid gap-4 sm:grid-cols-2">
             <Campo etiqueta="Horas lectivas" obligatorio error={errors.horasLectivas?.message} ayuda="Debe ser mayor que 0.">
               <Entrada type="number" inputMode="decimal" min="0" step="any" placeholder="Ej.: 24" estado={estado('horasLectivas')} {...register('horasLectivas', { valueAsNumber: true })} />
-            </Campo>
-            <Campo etiqueta="Costo (S/)" obligatorio error={errors.costo?.message} ayuda="0.00 si el curso es gratuito.">
-              <Entrada type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" estado={estado('costo')} {...register('costo', { valueAsNumber: true })} />
             </Campo>
             <Campo etiqueta="Cupos" obligatorio error={errors.cupos?.message}>
               <Entrada type="number" inputMode="numeric" min="1" step="1" placeholder="Ej.: 30" estado={estado('cupos')} {...register('cupos', { valueAsNumber: true })} />

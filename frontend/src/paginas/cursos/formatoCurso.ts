@@ -13,5 +13,12 @@ export const fechasCurso = (curso: Pick<Curso, 'fechaInicio' | 'fechaFin'>) =>
 
 export const costoCurso = (costo: number) => (costo === 0 ? 'Gratuito' : `S/ ${costo.toFixed(2)}`)
 
+export function condicionesCobro(curso: Pick<Curso, 'costo' | 'modalidadCobro' | 'plazoPagoMinutos'>): string {
+  if (curso.modalidadCobro === 'GRATUITO' || (curso.modalidadCobro == null && curso.costo === 0)) return 'Gratuito: curso y constancia sin cobro'
+  if (curso.modalidadCobro === 'CERTIFICADO') return `Curso sin cobro · Constancia: S/ ${curso.costo.toFixed(2)}`
+  if (curso.modalidadCobro === 'PREVIO') return `Pago antes de llevar el curso: S/ ${curso.costo.toFixed(2)} · Plazo: ${curso.plazoPagoMinutos} minutos desde la inscripción`
+  return `S/ ${curso.costo.toFixed(2)} · Condiciones de cobro por configurar`
+}
+
 export const cuposCurso = (curso: Pick<Curso, 'cupos' | 'cuposDisponibles'>) =>
   `${curso.cuposDisponibles} de ${curso.cupos} disponibles`

@@ -43,6 +43,7 @@ export function CertificadosCursoPagina() {
 
   const { curso, filas } = consulta.data
   const emitidos = filas.filter((f) => f.certificado).length
+  const retenidos=filas.filter(f=>f.entrega?.estado==='RETENIDA').length
   const nombreDocumento = CERTIFICADOS_CURSO[curso.tipoCertificado].toLowerCase()
   const plural = curso.tipoCertificado === 'APROBACION' ? 'certificados de aprobación' : 'constancias de participación'
 
@@ -57,6 +58,7 @@ export function CertificadosCursoPagina() {
         <ResumenCurso curso={curso} />
       </div>
       <Alerta tipo="exito">{emitidos === 1 ? `Se emitió 1 ${nombreDocumento}.` : `Se emitieron ${emitidos} ${plural}.`}</Alerta>
+      {retenidos>0 && <Alerta tipo="informacion">{retenidos} constancia(s) elegible(s) retenida(s) hasta confirmar el pago.</Alerta>}
 
       <Tabla cabeceras={['Nombre', 'Resultado', 'Certificado', 'Acciones']}>
         {filas.map((f) => (
@@ -80,7 +82,7 @@ export function CertificadosCursoPagina() {
                   <Etiqueta tono={ESTADO[f.certificado.estado].tono}>{ESTADO[f.certificado.estado].texto}</Etiqueta>
                 </span>
               ) : (
-                <span className="text-muted">No emitido</span>
+                <span className="text-muted">{f.entrega?.estado==='RETENIDA'?(f.entrega.estadoPago==='PAGADO'?'Pago confirmado · En preparación':'Retenida por pago'):'No emitido'}</span>
               )}
             </Celda>
             <Celda>
@@ -103,7 +105,7 @@ export function CertificadosCursoPagina() {
                     Anular
                   </button>
                 </span>
-              ) : !f.certificado ? <button type="button" className="text-sm font-semibold text-brand underline" onClick={() => cambiarExcepcion(f)}>Emitir por excepción</button> : '—'}
+              ) : f.entrega?.estado==='RETENIDA'?<Link className="font-semibold text-brand underline" to={`/admin/pagos?pago=${f.entrega.pagoId}`}>Consultar pago</Link>:!f.certificado ? <button type="button" className="text-sm font-semibold text-brand underline" onClick={() => cambiarExcepcion(f)}>Emitir por excepción</button> : '—'}
             </Celda>
           </tr>
         ))}
@@ -242,7 +244,7 @@ function DialogoExcepcionPosterior({ cursoId, fila, onCerrar }: { cursoId: strin
   const recargar = useRecargar(cursoId)
   const emision = useMutation({
     mutationFn: () => cursos.emitirExcepcion(cursoId, fila.agremiado.id, motivo.trim()),
-    onSuccess: async () => { await recargar(); toast.success('Constancia emitida por excepción.'); onCerrar() },
+    onSuccess: async resultado => { await recargar(); toast.success(resultado.retenida?'Elegibilidad registrada. Constancia retenida hasta confirmar el pago.':'Constancia emitida por excepción.'); onCerrar() },
   })
   const enviar = () => {
     if (!motivo.trim()) { cambiarError('Ingresa el motivo de la excepción.'); return }

@@ -6,11 +6,12 @@ import type { UsuarioAutenticado } from '../../plugins/autorizacion.js';
 import { ocultarDni } from '../historial/historial.modelo.js';
 import { crearConstancia } from './certificados.pdf.js';
 import { ErrorCertificado, type DatosDocumento, type FilaCierre } from './certificados.modelo.js';
+import { crearObligacion } from '../pagos/pagos.repositorio.js';
 
-export type CursoEmision = { id: string; estado: string; titulo: string; modalidad: string; costo: number; tipoCertificado: string; horasLectivas: number; instructorNombre: string };
+export type CursoEmision = { id: string; estado: string; titulo: string; modalidad: string; costo: number; modalidadCobro?:string|null; tipoCertificado: string; horasLectivas: number; instructorNombre: string };
 export async function cursoAdministrable(cliente: PoolClient, id: string, actor: UsuarioAutenticado) {
   const curso = (await cliente.query<CursoEmision>(`select c.id::text,c.estado,c.titulo,c.modalidad,c.costo::float8,c.tipo_certificado as "tipoCertificado",
-    c.horas_lectivas as "horasLectivas",i.name as "instructorNombre" from cursos c join users i on i.id=c.instructor_id
+    c."modalidadCobro",c.horas_lectivas as "horasLectivas",i.name as "instructorNombre" from cursos c join users i on i.id=c.instructor_id
     join users a on a.id=$2 and a.role='admin' and a.active
     where c.id=$1 for update of c`, [id,actor.id])).rows[0];
   if (!curso) {
@@ -20,8 +21,8 @@ export async function cursoAdministrable(cliente: PoolClient, id: string, actor:
   return curso;
 }
 export function validarAlcance(curso: CursoEmision) {
-  if (curso.modalidad!=='PRESENCIAL' || curso.tipoCertificado!=='PARTICIPACION' || curso.costo>0) {
-    throw new ErrorCertificado(409,'CERTIFICACION_FUERA_ALCANCE','Esta entrega emite constancias presenciales gratuitas sin examen. Los cursos con costo requieren confirmación del pago en HU-32.');
+  if (curso.modalidad!=='PRESENCIAL' || curso.tipoCertificado!=='PARTICIPACION' || (curso.costo>0 && !curso.modalidadCobro)) {
+    throw new ErrorCertificado(409,'CERTIFICACION_FUERA_ALCANCE','La emisión requiere participación presencial sin examen y condiciones de cobro configuradas para los cursos con costo.');
   }
 }
 export async function filasCierre(cliente: PoolClient, cursoId: string): Promise<FilaCierre[]> {
@@ -30,19 +31,22 @@ export async function filasCierre(cliente: PoolClient, cursoId: string): Promise
     from inscripciones_curso ins join users u on u.id=ins.usuario_id join cursos c on c.id=ins.curso_id
     left join classes s on s.curso_id=c.id and s.estado='PROGRAMADA'
     left join attendances a on a.class_id=s.id and a.user_id=u.id
-    where c.id=$1 and ins.estado<>'PENDIENTE_PAGO' group by u.id order by u.name,u.id`,[cursoId])).rows;
+    where c.id=$1 and ins.estado in ('EN_CURSO','TERMINADO') and "tieneAccesoCurso"(c.id,u.id) group by u.id order by u.name,u.id`,[cursoId])).rows;
   return filas.map(f => ({ agremiado:{id:f.id,nombre:f.nombre}, presentes:f.presentes,sesiones:f.sesiones,
     porcentaje:f.sesiones ? Math.round(f.presentes*10000/f.sesiones)/100 : 0, cumple:f.sesiones>0 && f.presentes*100>=f.sesiones*80 }));
 }
 export async function auditar(cliente: PoolClient, actor: UsuarioAutenticado, cursoId: string, accion: string, codigo: string | null = null, motivo: string | null = null) {
   await cliente.query('insert into "auditoriaCertificados"("actorId","cursoId",accion,codigo,motivo) values($1,$2,$3,$4,$5)',[actor.id,cursoId,accion,codigo,motivo]);
 }
-export async function emitir(cliente: PoolClient, curso: CursoEmision, usuarioId: string, actor: UsuarioAutenticado, motivo?: string, nombreCorregido?: string, anterior?: DatosDocumento) {
+async function datosConstancia(cliente:PoolClient,curso:CursoEmision,usuarioId:string,anterior?:DatosDocumento):Promise<DatosDocumento> {
+  if (anterior) return anterior;
   const persona = (await cliente.query<{ nombre:string; dni:string|null }>('select name as nombre,dni from users where id=$1',[usuarioId])).rows[0]!;
   const fechas = (await cliente.query<{ inicio:string; fin:string }>(`select to_char(min(fecha),'YYYY-MM-DD') as inicio,to_char(max(fecha),'YYYY-MM-DD') as fin from classes where curso_id=$1 and estado='PROGRAMADA'`,[curso.id])).rows[0]!;
-  const datos: DatosDocumento = { ...(anterior ?? { nombre:persona.nombre,dniEnmascarado:ocultarDni(persona.dni),curso:curso.titulo,modalidad:curso.modalidad,
-    horasLectivas:curso.horasLectivas,fechaInicio:fechas.inicio,fechaFin:fechas.fin,instructorNombre:curso.instructorNombre,tipo:'PARTICIPACION',demo:true }),
-    ...(nombreCorregido ? {nombre:nombreCorregido} : {}) };
+  return { nombre:persona.nombre,dniEnmascarado:ocultarDni(persona.dni),curso:curso.titulo,modalidad:curso.modalidad,
+    horasLectivas:curso.horasLectivas,fechaInicio:fechas.inicio,fechaFin:fechas.fin,instructorNombre:curso.instructorNombre,tipo:'PARTICIPACION',demo:true };
+}
+export async function emitir(cliente: PoolClient, curso: CursoEmision, usuarioId: string, actor: UsuarioAutenticado, motivo?: string, nombreCorregido?: string, anterior?: DatosDocumento) {
+  const datos:DatosDocumento={...await datosConstancia(cliente,curso,usuarioId,anterior),...(nombreCorregido?{nombre:nombreCorregido}:{})};
   const codigo = `CPPP-${randomBytes(16).toString('hex').toUpperCase()}`;
   const emitidoEn = new Date().toISOString();
   const archivo = await crearConstancia(datos,codigo,emitidoEn);
@@ -50,6 +54,43 @@ export async function emitir(cliente: PoolClient, curso: CursoEmision, usuarioId
     [curso.id,usuarioId,codigo,datos.tipo,emitidoEn,archivo,datos,!!motivo]);
   await auditar(cliente,actor,curso.id,motivo ? 'EXCEPCION':'EMITIR',codigo,motivo);
   return {codigo,datos};
+}
+async function emitirSegunCobro(cliente:PoolClient,curso:CursoEmision,usuarioId:string,actor:UsuarioAutenticado,motivo?:string) {
+  const intento=(await cliente.query<{id:string;modalidadCobro:string;importeCentimos:number}>(`select t.id,t."modalidadCobro",t."importeCentimos"::float8 from inscripciones_curso i
+    join "intentosInscripcion" t on t.id=i."intentoId" where i.curso_id=$1 and i.usuario_id=$2`,[curso.id,usuarioId])).rows[0];
+  if (!intento) {
+    const legado=(await cliente.query<{gratuita:boolean}>('select "constanciaGratuitaLegada" as gratuita from inscripciones_curso where curso_id=$1 and usuario_id=$2',[curso.id,usuarioId])).rows[0];
+    if (!legado?.gratuita) throw new ErrorCertificado(409,'COBRO_HISTORICO_PENDIENTE','Regulariza las condiciones históricas de este participante antes de emitir su constancia.');
+  }
+  if (intento?.modalidadCobro!=='CERTIFICADO') return {...await emitir(cliente,curso,usuarioId,actor,motivo),retenida:false};
+  const anterior=(await cliente.query('select "pagoId"::text from "entregasConstancia" where "cursoId"=$1 and "usuarioId"=$2',[curso.id,usuarioId])).rows[0];
+  if (anterior) return {codigo:null,retenida:true,pagoId:anterior.pagoId};
+  const datos=await datosConstancia(cliente,curso,usuarioId);
+  const pago=await crearObligacion(cliente,{cursoId:curso.id,usuarioId,intentoId:intento.id,concepto:'CONSTANCIA',importeCentimos:intento.importeCentimos,moneda:'PEN'});
+  await cliente.query(`insert into "entregasConstancia"("cursoId","usuarioId","intentoId","pagoId","actorId",datos,motivo) values($1,$2,$3,$4,$5,$6,$7)`,
+    [curso.id,usuarioId,intento.id,pago.id,actor.id,datos,motivo??null]);
+  await cliente.query('update "intentosInscripcion" set "pagoId"=$2 where id=$1',[intento.id,pago.id]);
+  await auditar(cliente,actor,curso.id,'RETENER',null,motivo??'Constancia elegible retenida hasta confirmar el pago.');
+  return {codigo:null,retenida:true,pagoId:pago.id};
+}
+export async function liberarRetenidas() {
+  const pendientes=(await pool.query<{id:string;cursoId:string}>(`select e.id::text,e."cursoId"::text from "entregasConstancia" e
+    join "obligacionesPago" p on p.id=e."pagoId" where e.estado='RETENIDA' and p.estado='PAGADO' order by e.id limit 100`)).rows;
+  let emitidas=0;
+  for (const pendiente of pendientes) await transaccion(async cliente=>{
+    await cliente.query('select id from cursos where id=$1 for update',[pendiente.cursoId]);
+    const entrega=(await cliente.query<{estado:string;usuarioId:string;actorId:string;datos:DatosDocumento;motivo:string|null}>(`select e.estado,e."usuarioId"::text,e."actorId"::text,e.datos,e.motivo from "entregasConstancia" e
+      join "obligacionesPago" p on p.id=e."pagoId" where e.id=$1 and p.estado='PAGADO' for update of e`,[pendiente.id])).rows[0];
+    if (!entrega || entrega.estado!=='RETENIDA') return;
+    const actor=(await cliente.query<UsuarioAutenticado>('select id,name,email,role from users where id=$1',[entrega.actorId])).rows[0]!;
+    const curso=(await cliente.query<CursoEmision>(`select id::text,estado,titulo,modalidad,costo::float8,"modalidadCobro",tipo_certificado as "tipoCertificado",horas_lectivas as "horasLectivas"
+      from cursos where id=$1`,[pendiente.cursoId])).rows[0]!;
+    const resultado=await emitir(cliente,curso,entrega.usuarioId,actor,entrega.motivo??undefined,undefined,entrega.datos);
+    await cliente.query(`update "entregasConstancia" set estado='EMITIDA',codigo=$2,"emitidoEn"=clock_timestamp() where id=$1`,[pendiente.id,resultado.codigo]);
+    await auditar(cliente,actor,curso.id,'LIBERAR_POR_PAGO',resultado.codigo,'Emisión automática sobre elegibilidad previamente autorizada.');
+    emitidas++;
+  });
+  return emitidas;
 }
 export async function vistaCierre(id: string, actor: UsuarioAutenticado, certificados = false) {
   return transaccion(async cliente => {
@@ -59,9 +100,13 @@ export async function vistaCierre(id: string, actor: UsuarioAutenticado, certifi
     if (!certificados && curso.estado!=='PUBLICADO') throw new ErrorCertificado(409,'CURSO_NO_PUBLICADO','Publica el curso antes de cerrarlo.');
     const filas = await filasCierre(cliente,id);
     const emitidos = (await cliente.query<{ usuarioId:string; codigo:string; estado:string; nombre:string; porExcepcion:boolean }>(`select usuario_id::text as "usuarioId",codigo,estado,coalesce(datos->>'nombre',u.name) as nombre,"porExcepcion" from certificados_curso cert join users u on u.id=cert.usuario_id where curso_id=$1 and estado<>'REEMPLAZADO'`,[id])).rows;
+    const entregas=(await cliente.query<{usuarioId:string;estado:string;pagoId:string;estadoPago:string}>(`select e."usuarioId"::text,e.estado,e."pagoId"::text,p.estado as "estadoPago"
+      from "entregasConstancia" e join "obligacionesPago" p on p.id=e."pagoId" where e."cursoId"=$1`,[id])).rows;
     return {curso:await obtenerCurso(id),requisitoAsistencia:80,filas:certificados ? filas.map(f=>{
       const certificado=emitidos.find(c=>c.usuarioId===f.agremiado.id);
-      return {...f,porExcepcion:certificado?.porExcepcion ?? false,certificado:certificado ? {codigo:certificado.codigo,estado:certificado.estado,nombre:certificado.nombre}:null};
+      const entrega=entregas.find(e=>e.usuarioId===f.agremiado.id);
+      return {...f,entrega:entrega?{estado:entrega.estado,pagoId:entrega.pagoId,estadoPago:entrega.estadoPago}:null,
+        porExcepcion:certificado?.porExcepcion ?? false,certificado:certificado ? {codigo:certificado.codigo,estado:certificado.estado,nombre:certificado.nombre}:null};
     }):filas};
   });
 }
@@ -81,14 +126,16 @@ export async function cerrarCurso(id:string, actor:UsuarioAutenticado, excepcion
     if(razones.size!==excepciones.length || excepciones.some(e=>!filas.some(f=>f.agremiado.id===e.agremiadoId))) throw new ErrorCertificado(422,'EXCEPCION_INVALIDA','Cada excepción debe corresponder a un inscrito distinto del curso.');
     const anteriores=(await cliente.query<{usuarioId:string}>('select usuario_id::text as "usuarioId" from certificados_curso where curso_id=$1 and estado<>\'REEMPLAZADO\'',[id])).rows;
     const existentes=new Set(anteriores.map(c=>c.usuarioId));
-    let emitidos=anteriores.length;
+    let emitidos=anteriores.length; let retenidos=0;
     for(const fila of filas) if(!existentes.has(fila.agremiado.id) && (fila.cumple || razones.has(fila.agremiado.id))) {
-      await emitir(cliente,curso,fila.agremiado.id,actor,razones.get(fila.agremiado.id)); emitidos++;
+      const resultado=await emitirSegunCobro(cliente,curso,fila.agremiado.id,actor,razones.get(fila.agremiado.id));
+      if (resultado.retenida) retenidos++; else emitidos++;
     }
     await cliente.query(`update cursos set estado='CERRADO',"cerradoEn"=now() where id=$1`,[id]);
     await cliente.query(`update inscripciones_curso set estado='TERMINADO',terminado_en=now() where curso_id=$1 and estado='EN_CURSO'`,[id]);
+    await cliente.query(`update "intentosInscripcion" set estado='TERMINADO' where "cursoId"=$1 and estado='EN_CURSO'`,[id]);
     await auditar(cliente,actor,id,'CERRAR');
-    return {emitidos};
+    return {emitidos,retenidos};
   });
 }
 export async function excepcionCerrado(id:string, usuarioId:string, motivo:string, actor:UsuarioAutenticado) {
@@ -98,7 +145,7 @@ export async function excepcionCerrado(id:string, usuarioId:string, motivo:strin
     const filas=await filasCierre(cliente,id);
     if(!filas.some(f=>f.agremiado.id===usuarioId)) throw new ErrorCertificado(403,'SIN_PERMISO','El colegiado no pertenece a este curso.');
     if((await cliente.query('select id from certificados_curso where curso_id=$1 and usuario_id=$2',[id,usuarioId])).rowCount) throw new ErrorCertificado(409,'CERTIFICADO_EXISTENTE','Ya existe un certificado para este colegiado.');
-    return emitir(cliente,curso,usuarioId,actor,motivo);
+    return emitirSegunCobro(cliente,curso,usuarioId,actor,motivo);
   });
 }
 

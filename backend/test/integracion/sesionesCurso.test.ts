@@ -76,6 +76,7 @@ test('HU-13: dos cursos no pueden programar simultáneamente al mismo instructor
 test('HU-13/HU-20: QR alimenta el 80 %, excluye otros cursos y sesiones canceladas', async () => {
   const c = await curso(); const ruta = `/api/cursos/${c.id}`;
   assert.equal((await llamar('admin', 'POST', `${ruta}/publicar`)).statusCode, 200);
+  assert.equal((await llamar('colegiado','POST',`${ruta}/inscribirme`)).statusCode,201);
   const vacia = await llamar('colegiado', 'GET', `${ruta}/mi-asistencia`);
   assert.equal(vacia.statusCode, 200, vacia.body);
   assert.deepEqual(vacia.json(), { totalSesiones: 0, presentes: 0, porcentaje: 0, requisitoAsistencia: 80, cumpleAsistencia: false });
@@ -83,7 +84,7 @@ test('HU-13/HU-20: QR alimenta el 80 %, excluye otros cursos y sesiones cancelad
   for (let i = 0; i < 5; i++) {
     const nueva = await llamar('admin', 'POST', `${ruta}/sesiones`, sesion({ fecha: `2033-07-${10 + i}` }));
     assert.equal(nueva.statusCode, 201, nueva.body); sesiones.push(nueva.json().id);
-    await pool.query("insert into enrollments(class_id,user_id) values($1,$2)", [nueva.json().id, usuarios.get('colegiado')!.id]);
+    assert.equal((await pool.query('select 1 from enrollments where class_id=$1 and user_id=$2',[nueva.json().id,usuarios.get('colegiado')!.id])).rowCount,1,'La sesión nueva incorpora inscripciones confirmadas del curso');
     if (i < 4) {
       const qr = await llamar('docente', 'GET', `/api/clases/${nueva.json().id}/qr`);
       const marcada = await llamar('colegiado', 'POST', '/api/asistencia/marcar', { token: qr.json().token });
@@ -123,6 +124,10 @@ test('HU-13: las rutas de clases tampoco permiten acceso a sesiones de otro inst
   assert.equal((await editar('admin', 'docente')).statusCode, 200);
 
   const inscripcion = await llamar('admin', 'POST', `/api/clases/${id}/inscritos`, { email: `sesiones-${org}-colegiado@prueba.local` });
-  assert.equal(inscripcion.statusCode, 201, inscripcion.body);
+  assert.equal(inscripcion.statusCode, 403, inscripcion.body);
+  const cursoId=(await pool.query('select curso_id::text from classes where id=$1',[id])).rows[0].curso_id;
+  await llamar('admin','POST',`/api/cursos/${cursoId}/publicar`);
+  await llamar('colegiado','POST',`/api/cursos/${cursoId}/inscribirme`);
+  assert.equal((await llamar('admin','POST',`/api/clases/${id}/inscritos`,{email:`sesiones-${org}-colegiado@prueba.local`})).statusCode,409,'La inscripción de curso ya añade las sesiones');
   assert.equal((await pool.query('select user_id::text from enrollments where class_id=$1', [id])).rows[0].user_id, usuarios.get('colegiado')!.id);
 });

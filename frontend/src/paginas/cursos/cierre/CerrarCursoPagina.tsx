@@ -29,9 +29,9 @@ export function CerrarCursoPagina() {
 
   const cerrar = useMutation({
     mutationFn: () => cursos.cerrar(id, Object.entries(excepciones).map(([agremiadoId, motivo]) => ({ agremiadoId, motivo }))),
-    onSuccess: async ({ emitidos }) => {
+    onSuccess: async ({ emitidos,retenidos }) => {
       await Promise.all([cache.invalidateQueries({ queryKey: ['curso', id] }), cache.invalidateQueries({ queryKey: ['cursos'] })])
-      toast.success(`Curso cerrado. Se emitieron ${emitidos} ${emitidos === 1 ? 'certificado' : 'certificados'}.`)
+      toast.success(`Curso cerrado. Se emitieron ${emitidos} ${emitidos === 1 ? 'certificado' : 'certificados'}.${retenidos?` ${retenidos} constancia(s) retenida(s) por pago.`:''}`)
       navegar(`/admin/cursos/${id}/certificados`, { replace: true })
     },
   })

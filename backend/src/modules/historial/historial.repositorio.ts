@@ -25,9 +25,25 @@ export async function obtenerHistorial(actor: UsuarioAutenticado, usuarioId: str
     await cliente.query('begin isolation level repeatable read read only');
     const colegiado = await autorizar(cliente, actor, usuarioId);
     const cursos = (await cliente.query<Omit<CursoHistorial, 'sesiones' | 'asistencia' | 'certificados'>>(`
-      select c.id::text,c.titulo,i.estado,(i.estado='PENDIENTE_PAGO') as "pagoPendiente",c.horas_lectivas as "horasLectivas",c.modalidad,
+      select c.id::text,c.titulo,
+        case when i.estado='PENDIENTE_PAGO' and t."venceEn"<=clock_timestamp() then 'CANCELADA' else i.estado end as estado,
+        (coalesce(p.estado='PENDIENTE',i.estado='PENDIENTE_PAGO') and i.estado<>'CANCELADA'
+          and (t."venceEn" is null or t."venceEn">clock_timestamp() or t."modalidadCobro"='CERTIFICADO')) as "pagoPendiente",
+        t."pagoId"::text,t."modalidadCobro",t."importeCentimos"::float8,t."venceEn"::text,e.estado as "estadoEntrega",
+        case when p.estado='PAGADO' then 'PAGADO' when i.estado='CANCELADA' or (i.estado='PENDIENTE_PAGO' and t."venceEn"<=clock_timestamp()) then 'VENCIDO'
+          when t."modalidadCobro"='GRATUITO' then 'EXENTO' when p.estado='PENDIENTE' then 'PENDIENTE'
+          when t."modalidadCobro"='CERTIFICADO' then 'NOEXIGIBLE' else 'SINREGISTRO' end as "estadoFinanciero",
+        coalesce((select jsonb_agg(jsonb_build_object('intentoId',anterior.id,'estado',anterior.estado,'modalidadCobro',anterior."modalidadCobro",
+          'importeCentimos',anterior."importeCentimos",'inscritoEn',anterior."inscritoEn",'venceEn',anterior."venceEn",'pagoId',anterior."pagoId"::text,
+          'estadoFinanciero',case when pagoAnterior.estado='PAGADO' then 'PAGADO' when anterior.estado='CANCELADA' then 'VENCIDO' else 'PENDIENTE' end)
+          order by anterior."inscritoEn" desc,anterior.id)
+          from "intentosInscripcion" anterior left join "obligacionesPago" pagoAnterior on pagoAnterior.id=anterior."pagoId"
+          where anterior."cursoId"=i.curso_id and anterior."usuarioId"=i.usuario_id and anterior.id is distinct from i."intentoId"),'[]'::jsonb) as "intentosAnteriores",
+        c.horas_lectivas as "horasLectivas",c.modalidad,
         to_char(i.inscrito_en at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') as "inscritoEn",to_char(i.terminado_en at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') as "terminadoEn"
       from inscripciones_curso i join cursos c on c.id=i.curso_id join users u on u.id=i.usuario_id
+      left join "intentosInscripcion" t on t.id=i."intentoId" left join "obligacionesPago" p on p.id=t."pagoId"
+      left join "entregasConstancia" e on e."intentoId"=t.id
       where i.usuario_id=$1 order by i.inscrito_en desc,c.id desc`, [usuarioId])).rows;
     const sesiones = (await cliente.query<SesionHistorial>(`
       select s.id::text,s.curso_id::text as "cursoId",s.nombre as titulo,to_char(s.fecha,'YYYY-MM-DD') as fecha,

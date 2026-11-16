@@ -50,16 +50,16 @@ brecha, incluso cuando ya existe una parte de una etapa posterior.
 | RF-19 | Demo | Avance/estado mostrado no sustituye persistencia y finalización de contenidos | 4 |
 | RF-20 | Pendiente | Faltan evaluaciones, respuestas, intentos y cálculo de notas en servidor | 4 |
 | RF-21 | Pendiente | Falta autorización auditada de intento adicional | 4 |
-| RF-22 | Pendiente | Falta pasarela aprobada, comisión, confirmación firmada e idempotencia; no se almacenarán tarjetas | 5 |
+| RF-22 | Parcial | HU-53 implementa adaptadores Izipay/Culqi, confirmación verificada e idempotencia; faltan cuentas/producto, comisión y recorridos sandbox acreditados | 5 |
 | RF-23 | Pendiente | Falta carga privada de voucher BCP, revisión, motivo y auditoría | 5 |
-| RF-24 | Pendiente | Falta registro real de efectivo con permisos y auditoría | 5 |
-| RF-25 | Pendiente | HU-16 mantiene cursos con costo pendientes. Faltan confirmación real por pago, notificación y comprobante | 5 |
+| RF-24 | Parcial | HU-53 implementa efectivo ADMIN con referencia única y auditoría persistente; recorrido real local probado, activación operativa pendiente | 5 |
+| RF-25 | Parcial | HU-53 añade política por curso, reserva/plazo, confirmación, retención y comprobante interno; faltan sandboxes, regularización histórica y publicación | 5 |
 | RF-26 | Parcial | HU-20 emite constancias presenciales gratuitas con 80 %; faltan nota, pago y otras modalidades | 6 |
 | RF-27 | Implementado | HU-20: excepción persistente con motivo, actor y fecha; documento de demostración | 6 |
 | RF-28 | Parcial | Historial descarga archivos almacenados con permisos; falta emisor oficial PDF/QR y firma autorizada del Decano | 6 |
 | RF-29 | Implementado | HU-20: verificación pública persistente de válido, anulado o reemplazado, sin DNI ni nota | 6 |
 | RF-30 | Implementado | HU-20: anulación persistente con motivo y auditoría | 6 |
-| RF-31 | Parcial | Historial real de cursos, sesiones y archivos en `backend/src/modules/historial`; pagos requieren módulo real | 8 |
+| RF-31 | Parcial | Historial real de cursos, sesiones y archivos en `backend/src/modules/historial`; HU-53 separa deuda/inscripción/entrega con módulo real local; sandboxes pendientes | 8 |
 | RF-32 | Pendiente | Falta definir y persistir cómputo de horas acumuladas válidas HU-34 | 8 |
 | RF-33 | Parcial | Listado restringido de colegiados en historial; faltan búsqueda por nombre/DNI y paginación en servidor | 8 |
 | RF-34 | Pendiente | PDF individual no sustituye reportes agregados de inscritos, asistencia, pagos y certificados en PDF/Excel | 8 |
@@ -178,3 +178,13 @@ QR verificable, privacidad, excepciones, anulación y corrección auditadas. El
 usuario autorizó firmas genéricas por el momento; no se emiten documentos oficiales.
 Se mantienen fuera del alcance los pagos, modalidades avanzadas y exámenes de
 los sprints posteriores.
+
+## HU-53: cobro por curso
+
+La implementación local incorpora pago previo, pago solo por constancia y gratuidad,
+con condiciones congeladas por inscripción. Efectivo se registra por ADMIN con
+auditoría; Izipay/Culqi permanecen deshabilitados hasta acreditar ambos sandboxes.
+Los alcances históricos que excluían pagos no describen esta implementación.
+Se conserva el alcance académico presencial/participación y la marca de demo.
+El detalle de pruebas, migración, límites y pendientes está en
+[la guía operativa](esp/cobroCursos.md). No acredita firma oficial ni despliegue.

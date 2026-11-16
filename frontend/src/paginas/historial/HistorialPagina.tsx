@@ -13,7 +13,8 @@ import { cn } from '@/lib/cn'
 import { fechaCorta, rangoFechasCorto } from '@/lib/formato'
 import { CERTIFICADOS_CURSO } from '@/servicios/cursos'
 import { queTeFalta, type Aviso } from './progreso'
-import { guardarDescarga, historiales, type Historial, type ResumenAsistencia, type SesionHistorial } from '@/servicios/historial'
+import { IntentosAnteriores } from './IntentosAnteriores'
+import { guardarDescarga, historiales, intervaloEntrega, type Historial, type ResumenAsistencia, type SesionHistorial } from '@/servicios/historial'
 
 type CursoHistorial = Historial['cursos'][number]
 
@@ -31,7 +32,8 @@ export function HistorialPagina() {
   const { usuarioId } = useParams()
   const { usuario } = useAuth()
   const id = usuarioId ?? usuario?.id ?? ''
-  const consulta = useQuery({ queryKey: ['historial', usuario?.id, id], queryFn: () => historiales.obtener(id), enabled: !!id, retry: false })
+  const consulta = useQuery({ queryKey: ['historial', usuario?.id, id], queryFn: () => historiales.obtener(id), enabled: !!id, retry: false,
+    refetchInterval: query => intervaloEntrega(query.state.data) })
   const [descargando, cambiarDescargando] = useState(false)
   const [error, cambiarError] = useState('')
   const [anio, cambiarAnio] = useState('')
@@ -51,6 +53,7 @@ export function HistorialPagina() {
   const enCurso = historial.cursos.filter(c => c.estado === 'EN_CURSO')
   const pendientes = historial.cursos.filter(c => c.estado === 'PENDIENTE_PAGO')
   const terminados = historial.cursos.filter(c => c.estado === 'TERMINADO')
+  const cancelados = historial.cursos.filter(c=>c.estado==='CANCELADA')
 
   const selectorAnio = (oculto: string) => <Campo etiqueta="Año" className={oculto}>
     <Selector value={anio} onChange={e => cambiarAnio(e.target.value)} className="sm:h-12 sm:text-base">
@@ -97,6 +100,7 @@ export function HistorialPagina() {
     {terminados.length === 0
       ? <p className="text-sm text-muted">Todavía no has terminado ningún curso.</p>
       : terminados.map(curso => <TarjetaCurso key={curso.id} curso={curso} descargando={descargando} onDescargar={certificadoId => void descargar(certificadoId)} />)}
+    {cancelados.length>0 && <><h2 className="text-lg font-bold text-ink">Reservas canceladas</h2>{cancelados.map(curso=><TarjetaCurso key={curso.id} curso={curso} descargando={descargando} onDescargar={certificadoId=>void descargar(certificadoId)} />)}</>}
 
     {historial.sesionesIndependientes.length > 0 && <section aria-labelledby="sesiones-independientes" className="flex flex-col gap-2.5">
       <h2 id="sesiones-independientes" className="text-lg font-bold text-ink">Otras sesiones de capacitación</h2>
@@ -107,17 +111,20 @@ export function HistorialPagina() {
 }
 
 function TarjetaCurso({ curso, descargando, onDescargar }: { curso: CursoHistorial; descargando: boolean; onDescargar: (certificadoId: string) => void }) {
+  const { usuario } = useAuth()
   const terminado = curso.estado === 'TERMINADO'
   const fechas = curso.sesiones.map(s => s.fecha).sort()
   return <article className={tarjeta}>
     <div className="flex items-start gap-2">
       <h3 className="min-w-0 flex-1 text-base font-semibold text-ink">{curso.titulo}</h3>
-      <Etiqueta tono={curso.estado === 'PENDIENTE_PAGO' ? 'advertencia' : terminado ? 'exito' : 'marca'}>{curso.estado === 'PENDIENTE_PAGO' ? 'Pendiente de pago' : terminado ? 'Terminado' : 'En curso'}</Etiqueta>
+      <Etiqueta tono={curso.estado === 'PENDIENTE_PAGO' || curso.estado==='CANCELADA' ? 'advertencia' : terminado ? 'exito' : 'marca'}>{curso.estado==='CANCELADA'?'Reserva cancelada':curso.estado === 'PENDIENTE_PAGO' ? 'Pendiente de pago' : terminado ? 'Terminado' : 'En curso'}</Etiqueta>
     </div>
     {fechas.length > 0 && <p className="flex items-center gap-2 text-sm text-muted">
       <Calendar className="size-4 shrink-0 text-brand" aria-hidden />{rangoFechasCorto(fechas[0]!, fechas.at(-1)!)}
     </p>}
     <Avance asistencia={curso.asistencia} />
+    <IntentosAnteriores intentos={curso.intentosAnteriores} administrador={usuario?.rol==='ADMIN'} />
+    {curso.estadoEntrega==='RETENIDA' && <p className="text-sm">{curso.estadoFinanciero==='PAGADO'?'Pago confirmado. Constancia en preparación.':'Constancia retenida hasta confirmar el pago.'} <Link to={`/cursos/${curso.id}`} className="font-semibold text-brand underline">Consultar curso y pago</Link></p>}
     {curso.sesiones.length > 0 && <div className="border-t border-line pt-2.5"><Sesiones sesiones={curso.sesiones} /></div>}
     {terminado && <AvisoProgreso aviso={queTeFalta(curso)} />}
     {curso.certificados.filter(cert => cert.estado === 'ANULADO').map(cert => <p key={cert.id} className="flex flex-wrap items-center gap-2 text-[13px] text-muted">

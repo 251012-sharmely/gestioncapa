@@ -10,7 +10,7 @@ export async function flujoInscripcionCurso(page: Page, admin: Parameters<typeof
     const instructores = await (await fetch('/api/cursos/instructores', { headers: cabeceras })).json()
     const respuesta = await fetch('/api/cursos', { method: 'POST', headers: cabeceras, body: JSON.stringify({
       titulo, descripcion: 'Reserva de vacante pendiente de pago.', instructorId: instructores[0].id,
-      horasLectivas: 8, modalidad: 'VIRTUAL', costo: 45, cupos: 1, tipoCertificado: 'PARTICIPACION', modulos: [{ titulo: 'Introducción' }],
+      horasLectivas: 8, modalidad: 'VIRTUAL', costo: 45, modalidadCobro:'PREVIO',plazoPagoMinutos:60,cupos: 1, tipoCertificado: 'PARTICIPACION', modulos: [{ titulo: 'Introducción' }],
     }) })
     if (respuesta.status !== 201) throw new Error(await respuesta.text())
     const curso = await respuesta.json()
@@ -28,7 +28,7 @@ export async function flujoInscripcionCurso(page: Page, admin: Parameters<typeof
   await page.getByRole('button', { name: 'Inscribirme', exact: true }).click()
   expect((await respuesta).status()).toBe(201)
   await expect(page.getByRole('button', { name: 'Pendiente de pago', exact: true })).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('aún no está confirmada')
+  await expect(page.getByRole('status').filter({ hasText: 'aún no está confirmada' })).toBeVisible()
   await page.getByRole('link', { name: 'Mis cursos', exact: true }).click()
   const tarjeta = page.getByRole('article').filter({ has: page.getByRole('heading', { name: titulo, exact: true }) })
   await expect(tarjeta.getByText('Pendiente de pago', { exact: true })).toBeVisible()

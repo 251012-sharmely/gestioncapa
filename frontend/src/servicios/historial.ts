@@ -8,15 +8,23 @@ export type CertificadoHistorial = {
   /** Solo los VALIDO suman horas (HU-34); un anulado se muestra pero no cuenta */
   estado: EstadoCertificado;
 }
+export type IntentoAnterior={intentoId:string;estado:string;modalidadCobro:string;importeCentimos:number;inscritoEn:string;venceEn:string|null;pagoId:string|null;estadoFinanciero:string}
 export type Historial = {
   horasAcumuladas: { total: number; porAnio: { anio: string; horas: number }[] };
   colegiado: ColegiadoHistorial; generadoEn: string; asistenciaGeneral: ResumenAsistencia; sesionesIndependientes: SesionHistorial[];
-  cursos: { id: string; titulo: string; estado: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO'; horasLectivas: number; modalidad: string; inscritoEn: string; terminadoEn: string | null;
+  cursos: { id: string; titulo: string; estado: 'EN_CURSO' | 'TERMINADO' | 'PENDIENTE_PAGO' | 'CANCELADA'; horasLectivas: number; modalidad: string; inscritoEn: string; terminadoEn: string | null;
+    pagoId?:string|null;estadoEntrega?:'RETENIDA'|'EMITIDA'|null;estadoFinanciero?:string;importeCentimos?:number|null;modalidadCobro?:string|null;venceEn?:string|null;
+    intentosAnteriores?:IntentoAnterior[];
     /** Porcentaje mínimo de asistencia para la constancia (SCRUM-171); explica por qué no se emitió */
     requisitoAsistencia: number;
     /** Curso con costo cuyo pago aún no se confirma (HU-16): la inscripción queda «pendiente de pago» */
     pagoPendiente: boolean;
     asistencia: ResumenAsistencia; sesiones: SesionHistorial[]; certificados: CertificadoHistorial[] }[]
+}
+
+/** Mantiene visible la entrega automática después de confirmar un pago. */
+export function intervaloEntrega(historial?: Pick<Historial, 'cursos'>) {
+  return historial?.cursos.some(curso => curso.estadoEntrega === 'RETENIDA' && curso.estadoFinanciero === 'PAGADO') ? 3000 : false
 }
 type HistorialRecibido = Omit<Historial, 'cursos'> & {
   cursos: (Omit<Historial['cursos'][number], 'requisitoAsistencia' | 'pagoPendiente' | 'certificados'> & {

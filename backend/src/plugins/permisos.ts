@@ -18,6 +18,11 @@ const rolesGestionClases: Rol[] = ["ADMIN"];
  * de lo contrario el servidor no arranca.
  */
 export const permisos: Permiso[] = [
+  { metodo:'GET',ruta:'/api/pagos/:id',acceso:['ADMIN','AGREMIADO'] },
+  { metodo:'POST',ruta:'/api/pagos/:id/intentos',acceso:['AGREMIADO'],critica:true },
+  { metodo:'POST',ruta:'/api/pagos/:id/efectivo',acceso:['ADMIN'],critica:true },
+  { metodo:'POST',ruta:'/api/pagos/:id/conciliar',acceso:['ADMIN'],critica:true },
+  { metodo:'POST',ruta:'/api/pagos/notificaciones/:proveedor',acceso:'publico',critica:true },
   { metodo: 'GET', ruta: '/api/usuarios', acceso: ['ADMIN'] },
   { metodo: 'POST', ruta: '/api/usuarios', acceso: ['ADMIN'], critica: true },
   { metodo: 'PUT', ruta: '/api/usuarios/:id', acceso: ['ADMIN'], critica: true },
@@ -39,6 +44,7 @@ export const permisos: Permiso[] = [
   { metodo: "GET", ruta: "/api/cursos", acceso: ["ADMIN", "INSTRUCTOR"] },
   { metodo: "GET", ruta: "/api/cursos/instructores", acceso: ["ADMIN"] },
   { metodo: "POST", ruta: "/api/cursos", acceso: ["ADMIN"], critica: true },
+  { metodo: 'PATCH', ruta: '/api/cursos/:id/cobro', acceso: ['ADMIN'], critica: true },
   { metodo: "GET", ruta: "/api/catalogo/cursos", acceso: "autenticado" },
   { metodo: "GET", ruta: "/api/cursos/:id", acceso: "autenticado" },
   { metodo: "POST", ruta: "/api/cursos/:id/publicar", acceso: ["ADMIN"], critica: true },

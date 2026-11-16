@@ -4,6 +4,7 @@ import { tokenRevocado, limitarPeticiones } from './modules/auth/seguridadAcceso
 import { registrarAccesoSesiones } from './modules/cursos/sesiones.acceso.js';
 import { registrarHistorial } from './modules/historial/historial.rutas.js';
 import { registrarCursos } from "./modules/cursos/cursos.rutas.js";
+import { registrarPagos } from './modules/pagos/pagos.rutas.js';
 import { registrarRutasReuniones } from "./modules/reuniones/reuniones.rutas.js";
 import Fastify from "fastify";
 import { env } from "./config/env.js";
@@ -52,6 +53,7 @@ export async function buildApp() {
   await app.register(authRoutes);
   await app.register(clasesRoutes);
   await app.register(registrarCursos);
+  await app.register(registrarPagos);
   await app.register(registrarHistorial);
   await app.register(registrarUsuarios);
   await app.register(registrarCertificados);

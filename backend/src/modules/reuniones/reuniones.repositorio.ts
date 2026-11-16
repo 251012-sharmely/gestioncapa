@@ -36,7 +36,8 @@ export async function comprobarAcceso(cliente: PoolClient, reunion: Reunion, usu
     select
       (persona.role in ('admin')) as gestion,
       (clase.instructor_id = persona.id) as instructor,
-      exists(select 1 from enrollments where class_id = clase.id and user_id = persona.id) as inscrito,
+      (exists(select 1 from enrollments where class_id = clase.id and user_id = persona.id)
+        and (clase.curso_id is null or "tieneAccesoCurso"(clase.curso_id,persona.id))) as inscrito,
       (clase.estado = 'PROGRAMADA') as activa,
       exists(select 1 from "participantesReunion" where "reunionIdentificador" = $1
         and "usuarioIdentificador" = persona.id and estado = 'retirado') as retirado
@@ -57,7 +58,8 @@ export async function listarReuniones(usuario: UsuarioAutenticado) {
     join users persona on persona.id = $1
     where persona.active and (
       persona.role in ('admin') or clase.instructor_id = persona.id or
-      exists(select 1 from enrollments where class_id = clase.id and user_id = persona.id)
+      (exists(select 1 from enrollments where class_id = clase.id and user_id = persona.id)
+        and (clase.curso_id is null or "tieneAccesoCurso"(clase.curso_id,persona.id)))
     ) and not exists(select 1 from "participantesReunion" participante
       where participante."reunionIdentificador" = reunion.identificador
       and participante."usuarioIdentificador" = persona.id and participante.estado = 'retirado')

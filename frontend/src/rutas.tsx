@@ -1,4 +1,5 @@
 import { UsuariosPagina } from '@/paginas/admin/UsuariosPagina'
+import { EfectivoPagina } from '@/paginas/pagos/EfectivoPagina'
 import { RecuperarPagina } from '@/paginas/RecuperarPagina'
 import { HistorialPagina, HistorialesAdminPagina } from '@/paginas/historial/HistorialPagina'
 import { CatalogoPagina, CursosPagina } from '@/paginas/cursos/CursosPagina'
@@ -90,6 +91,7 @@ export const router = createBrowserRouter([
           { path: 'cursos/:id/cerrar', element: <CerrarCursoPagina /> },
           { path: 'cursos/:id/certificados', element: <CertificadosCursoPagina /> },
           { path: 'certificados', element: <CertificadosAdminPagina /> },
+          { path:'pagos',element:<EfectivoPagina /> },
           { path: 'clases', element: <ClasesPagina /> },
           { path: 'clases/nueva', element: <ClaseFormPagina /> },
           { path: 'clases/:id', element: <DetalleClasePagina /> },
