@@ -190,3 +190,233 @@ commits nuevos ni etiquetas creadas por el agente.
 - [Eventos de PR, merge de prueba y contribuciones desde forks](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request).
 - [Estados de checks y significado de startup_failure](https://docs.github.com/en/enterprise-cloud@latest/pull-requests/reference/status-checks).
 - [setup-node sin lockfile](https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md#running-without-a-lockfile).
+
+---
+
+# Especificación HU-22: catálogo público y retorno al curso
+
+**Jira:** SCRUM-67, bajo SCRUM-5. **Revisión:** 15/11/2026.
+**Estado:** implementación y verificación local completadas; entrega manual pendiente.
+Base revisada: `000a93c`, rama `SCRUM-67-hu-22-pagina-publica-de-cursos-del-subdominio`.
+Esta sección y el plan HU-22 constituyen la propuesta vigente; se conservan T-20,
+CPPP y los seguimientos históricos. No se trasladan resultados de otras ramas.
+
+## Objetivo y caso de uso
+
+Un colegiado o docente sin cuenta explora los cursos del CPPP sin autenticarse,
+elige uno, inicia sesión o se registra y vuelve al mismo curso para confirmar su
+inscripción. Desde el encabezado anónimo también consulta constancias públicas.
+Es una ampliación del catálogo existente: reutiliza acceso, HU-50, HU-16 y HU-20;
+no crea nuevos módulos de identidad, pagos o certificación.
+
+### Decisiones ya confirmadas con el usuario
+
+- Reutilizar registro participante actual: rol `AGREMIADO`, sin conceder `INSTRUCTOR`
+  ni afirmar que se comprobó habilitación en el padrón.
+- «Sin datos personales» en el catálogo permite nombre profesional del instructor
+  e información institucional; excluye DNI, contactos particulares y datos de alumnos.
+- Continuar con inscripción/reserva: gratuito queda confirmado y curso con costo
+  queda `PENDIENTE_PAGO`. Cobro efectivo/pasarela pertenece a HU-32 y otras historias;
+  esta rama no incluye ese módulo y HU-22 no acreditará un pago inexistente.
+- Conservar los documentos existentes y añadir las secciones nuevas al final,
+  incluyendo pendientes y marcadores de conflicto previamente presentes.
+
+### Supuestos de esta propuesta, visibles para aprobación
+
+Se conserva la vigencia actual: `PUBLICADO` y fecha de fin nula o igual/posterior
+al día de Lima. Un curso sin fechas muestra «Fechas por confirmar», sin inventarlas.
+Los cursos sin cupos siguen visibles, identificados como «Sin cupos» y sin prometer
+reserva. La selección conduce al detalle; autenticarse no inscribe automáticamente.
+El servidor comprueba disponibilidad al confirmar. HU-22 no redefine el cierre
+de matrícula por fechas ni los permisos de materiales de otras historias.
+
+## Estado comprobado e inconsistencias
+
+| Área | Código actual | Diferencia que debe resolverse |
+| --- | --- | --- |
+| Portada | `frontend/src/rutas.tsx`: `/` y `/capacitaciones` son públicas | Conservar ambas entradas y sus filtros/paginación |
+| Datos públicos | `GET /api/publico/cursos`, `cursos.rutas.ts` y `paginaCatalogo` | Ya filtran publicados/vigencia y exponen una lista explícita de campos; añadir cobertura del recorrido, sin abrir detalle/material privado |
+| Tarjeta | `CursosPagina.tsx`, `TarjetaCatalogo`: enlace público genérico a `/login` | No contiene «Inscribirme» ni conserva el curso elegido |
+| Login | `LoginPagina.tsx` usa `location.state.desde`, o inicio por rol | La tarjeta no pasa destino; falta selección que sobreviva recarga y cambio a registro |
+| Registro | `RegistroPagina.tsx` vuelve siempre a `/catalogo`; enlace de acceso sin contexto | Alta y alternancia login/registro pierden el curso |
+| Sesión expirada | `RutaProtegida` conserva ruta/query; interceptor 401 de `lib/api.ts` usa login genérico | No degradar el retorno existente del QR; una expiración401 desde el detalle también debe conservar el curso, sin crear un redireccionador libre |
+| Constancias | `/verificar`, `/verificar/:codigo` y API HU-20 ya son públicos | Falta «Consultar constancias» en `Encabezado.tsx` sin sesión |
+| Institución | `CPPP.web.url` y encabezado/pie ya enlazan al sitio institucional | Conservar ese enlace junto a las nuevas acciones, también en móvil |
+| Seguimiento | `todo.md` conserva un checklist HU-22 antiguo; SPEC/plan actuales solo contienen otras tareas | Recuperar especificación/plan verificables sin borrar el historial ni declarar realizada la implementación |
+
+El enlace institucional existente es `https://www.cpppregion-cusco.com/`.
+La documentación sugiere `capacitacion.cpppregion-cusco.com`; no acredita DNS,
+HTTPS ni despliegue. No se ha consultado ni modificado infraestructura externa.
+
+## Contrato de navegación propuesto
+
+- Cada curso dispone de enlace de título y acción visible «Inscribirme», con
+  nombre accesible que distingue el curso. No anidar enlaces/botones interactivos.
+- Visitante: `/login?curso=<id>`. Desde allí «Crear cuenta» abre
+  `/registro?curso=<id>` y volver a login conserva la selección.
+- `curso` acepta exactamente un identificador decimal positivo de 1–15 dígitos,
+  sin cero inicial, igual al contrato `idCurso` del backend. Duplicados, URLs,
+  rutas, espacios, negativos y valores codificados maliciosos se descartan.
+  Se construye `/cursos/<id>` localmente; no se acepta `next`, `redirect` o una URL.
+- Un `curso` válido tiene prioridad para este recorrido explícito. Sin selección
+  válida se conserva login normal y `state.desde` interno del guard, incluido QR;
+  registro directo conserva su regreso al catálogo. No se publica `desde` como
+  parámetro de URL. No modificar el esquema de almacenamiento de sesión en HU-22.
+- Con sesión activa, la acción va al curso elegido y respeta permisos del servidor.
+  Una cuenta ADMIN/INSTRUCTOR no se convierte en participante por este enlace.
+- Un 401 durante la consulta del curso o verificación de sesión desde login/registro
+  conserva exclusivamente su identificador validado al pedir acceso otra vez. El
+  acceso del encabezado también lo conserva. Se reconocen las variantes de ruta del
+  router y se canonicaliza el destino; otros retornos conservan su política.
+- Tras volver, consultar de nuevo el curso. No enviar POST de inscripción ni pago
+  al autenticar. Si desapareció/no está autorizado/sin cupos, mostrar el estado
+  real y permitir volver al catálogo, sin éxito simulado ni inscripción silenciosa.
+- «Consultar constancias» enlaza a `/verificar` en la misma aplicación, sin login.
+  Reutiliza la respuesta pública mínima de HU-20; no abre sus PDFs privados.
+
+## Criterios de aceptación verificables
+
+| ID | Escenario y resultado esperado |
+| --- | --- |
+| HU22-01 | Sin sesión, `/` y `/capacitaciones` muestran cursos publicados vigentes, con fechas o indicación explícita de ausencia, modalidad, horas y costo PEN/Gratuito. Borradores, cerrados y vencidos no aparecen. |
+| HU22-02 | Búsqueda, filtros y paginación siguen funcionando; carga, vacío y error con reintento son legibles. Sin cupos se identifica claramente y no ofrece reserva disponible. |
+| HU22-03 | La respuesta pública y la página no incluyen DNI, correo/celular particular, contraseñas, alumnos, pagos, asistencia ni materiales. Se permite nombre profesional del instructor e información institucional acordada. |
+| HU22-04 | Al pulsar «Inscribirme» en un curso disponible sin sesión, se abre acceso con ese curso, sin POST de inscripción. Con sesión se conserva el curso y los permisos. |
+| HU22-05 | Login correcto vuelve al curso elegido, incluso después de un intento fallido y de recargar el formulario. Login directo e inicio por rol conservan su comportamiento. |
+| HU22-06 | Crear cuenta desde el curso inicia sesión participante y vuelve al mismo curso. Alternar login/registro y errores de validación no pierden la selección. Registro directo sigue al catálogo y no concede instructor. |
+| HU22-07 | En el detalle la persona confirma «Inscribirme»: gratuito confirma; con costo reserva `PENDIENTE_PAGO`, sin afirmar cobro. Reintentos no duplican inscripción; falta de cupo/no publicado se muestra sin éxito ficticio. |
+| HU22-08 | El encabezado sin sesión muestra exactamente «Consultar constancias» y abre HU-20 público en `/verificar`. Se mantienen estados válido/anulado/reemplazado/no encontrado y restricciones de PDF existentes. |
+| HU22-09 | No hay redirecciones externas por parámetros manipulados. Se conserva QR con su query y el retorno al curso tras401; curso inexistente o sin permiso no crea bucles. |
+| HU22-10 | Encabezado y catálogo conservan enlace institucional y funcionan con teclado/foco y en 320/360/768/1024/1440px, sin desbordamiento horizontal ni nuevos errores de consola. |
+
+## Pila, estructura y estilo
+
+React19, React Router7, TanStack Query5 y TypeScript; Fastify5/Zod4/PostgreSQL/Redis.
+Vitest para lógica de retorno y presentación; Node test para permisos/datos; Playwright
+para demo y servidor real. Versiones efectivas se verifican al instalar; no hay
+lockfile versionado en esta base y no se propone cambiar esa política en HU-22.
+
+Fuente: `frontend/src/lib`, `paginas/LoginPagina.tsx`, `paginas/RegistroPagina.tsx`,
+`paginas/cursos/CursosPagina.tsx`, `components/layout/Encabezado.tsx` y `lib/api.ts`.
+Backend: `backend/src/modules/cursos` y contratos de permisos existentes.
+Pruebas: `frontend/src/**/*.test.ts`, `backend/test/integracion`,
+`e2e/prb/demo/catalogoPublico.spec.ts` y su equivalente `real`.
+Documentación: esta sección, `tasks/`, `docs/rutas.md` y guía pública propuesta.
+
+Estilo tomado del código actual:
+
+```ts
+export const costoCurso = (costo: number) =>
+  costo === 0 ? 'Gratuito' : `S/ ${costo.toFixed(2)}`
+```
+
+Funciones/variables camelCase, componentes/tipos PascalCase, archivos nuevos sin
+guiones bajos. Mantener contratos SQL/env externos existentes. Reutilizar `CPPP`,
+componentes y formatos de cursos; no duplicar autenticación ni crear un segundo catálogo.
+
+## Comandos y estrategia posterior a aprobación
+
+Desde la raíz, con dependencias ya preparadas; integración/E2E real exclusivamente
+contra PostgreSQL/Redis de prueba aislados. No leer ni editar secretos reales.
+
+- Foco retorno propuesto: `npm exec -w frontend -- vitest run src/lib/retornoCurso.test.ts`.
+- Regresión: `npm run test -w frontend` y `npm run test -w backend`.
+- API: `node --import tsx --test backend/test/integracion/catalogo.test.ts backend/test/integracion/registro.test.ts`.
+- Demo: `npm run e2e -- catalogoPublico.spec.ts registro.spec.ts roles.spec.ts`.
+- Real: `npm run e2e:real -- catalogoPublico.spec.ts registro.spec.ts roles.spec.ts`.
+- Tipos: `npm run typecheck -w backend`,
+  `npm exec -w frontend -- tsc -p tsconfig.app.json --noEmit`,
+  `npm exec -w frontend -- tsc -p tsconfig.node.json --noEmit`, `npm run e2e:tipos`.
+- Lint/formato: `npm run lint -w frontend` y `git diff --check`.
+- Desarrollo: `npm run dev` con perfil de prueba o `npm run dev:demo` para MSW.
+- Build: `npm run build`, solo ejecución manual del usuario, después de implementar.
+
+Por incremento: prueba de comportamiento primero, observar RED, implementar mínimo,
+obtener GREEN y registrar evidencia. Mocks no sustituyen el recorrido con servidor
+real. No omitir pruebas, reducir umbrales ni atribuir resultados de otras tareas.
+
+## Límites, seguridad y preparación de entrega
+
+**Siempre:** preservar trabajos previos, validar el identificador de retorno,
+revalidar permisos/cupos en servidor, evitar datos privados públicos, probar fallos
+y registrar causa raíz antes de corregir; revisar DoD y Security Checklist al cerrar.
+**Consultar si cambia el alcance:** nuevas reglas de matrícula/vigencia, identidad,
+exposición pública adicional, esquema de datos, dependencias o CI. No se prevén.
+**Nunca:** implementar antes de aprobar esta propuesta, registrar al visitante sin
+confirmación, elevar roles, simular pago, publicar secretos, hacer build o Git de
+escritura. `add`, `commit`, tags, merges, PR y push son manuales según AGENTS.md.
+
+Pendientes para publicar: implementación aprobada, pruebas y revisión de código/
+seguridad, build manual, aprobación humana/CI, servidor y subdominio real con HTTPS,
+rutas SPA y API verificadas. No se hará despliegue como parte de esta fase.
+
+La fase inicial guardó especificación y plan sin código. La solicitud posterior
+del usuario autorizó la implementación. Se registran pruebas de esta rama, sin
+atribuirle resultados de historias o ramas anteriores. Build y Git son manuales.
+
+### Implementación y decisiones verificadas
+
+Se reutiliza la API pública existente; no se cambian backend, tablas, roles,
+dependencias ni contratos de inscripción. Se añaden navegación validada, acción
+pública, retorno de registro y enlace de verificación. La guía de uso está en
+[catálogo público](docs/esp/catalogoPublico.md).
+
+El retorno se reconoce con `matchRoutes` del mismo router, manteniendo validación
+numérica: evitar un segundo intérprete de rutas corrige barras finales, mayúsculas
+y codificación. El estado interno `desde` se comprueba por tipo/ruta local y no
+acepta controles/backslashes. Se comparte el formato del destino entre login,
+registro, guard, interceptor 401 y encabezado; no se añade almacenamiento.
+
+La revisión interna en tres ciclos detectó pérdida de selección en 401 de auth/me,
+variantes admitidas por el router y enlace de acceso del encabezado. Se corrigieron
+con pruebas RED/GREEN; el tercer ciclo no encontró defectos concretos adicionales.
+Se mantuvo la preferencia del usuario por revisión interna, sin otra CLI/modelo.
+
+La comprobación responsive detectó un defecto previo del pie: ancho 1264 px en una
+pantalla 1024 px por columnas fijas. Se usan cuatro columnas flexibles, sin ocultar
+contenido. El encabezado y catálogo pasan a 320/360/768/1024/1440 px y con teclado.
+
+Los tests demo preparan cursos mediante la interfaz y conservan navegación SPA,
+porque recargar reinicia los datos MSW. La persistencia se comprueba con servidor
+real. No está disponible Chrome DevTools MCP: se usa Chromium/Playwright aislado,
+DOM, red, errores de página y capturas. No se accede a perfiles personales.
+
+Commits creados: ninguno. Base local `v2.0.0.1.0`; propuesta condicional de entrega
+`v2.1.0.0.0` (Función) por el nuevo recorrido público de selección/inscripción y
+consulta de constancias, compatible con las rutas sin selección. No se modifican
+etiquetas, versiones npm ni el índice Git. Build/revisión/CI y subdominio real
+continúan pendientes de ejecución o acreditación humana.
+
+### Evidencia final HU-22
+
+| Verificación ejecutada | Resultado |
+| --- | --- |
+| `npm run test -w backend` | 271/271 aprobadas |
+| `npm run test:integracion -w backend` con PostgreSQL/Redis aislados | 239/239 aprobadas |
+| `npm run test -w frontend` | 76 Vitest y 3 servidor aprobadas |
+| `npm run e2e:real -- --workers=1` | Suite completa, 33/33 aprobadas en 3.2 min |
+| `npm run e2e -- catalogoPublico.spec.ts registro.spec.ts roles.spec.ts catalogo.spec.ts certificados.spec.ts navegacion.spec.ts --workers=1` | 38/38 aprobadas en 3.5 min, escritorio y móvil |
+| Tipos backend, frontend con noEmit y E2E | Aprobados |
+| `npm run lint -w frontend` | Sin errores; dos avisos previos en pdfTexto/CursosPagina |
+| `npm audit --json` | Cero vulnerabilidades en el grafo local; no acredita instalación congelada |
+| `git diff --check`, nombres, enlaces nuevos y conservación de prefijos | Aprobados |
+
+Total final: 660 casos, sin contar ejecuciones focalizadas repetidas. La mutación
+temporal que admitía parámetros `curso` duplicados fue detectada por sus pruebas;
+se restauró el archivo y las 21 pruebas de retorno volvieron a verde.
+
+La primera regresión E2E simultánea agotó recursos del equipo (menos de 300 MB
+disponibles y swap llena), con timeouts y un chequeo terminado por señal 143.
+Se interrumpieron únicamente los dos runners propios, sin tocar el navegador del
+usuario. Liberaron aproximadamente 2.6 GB; las mismas suites pasaron en serie con
+un trabajador, sin alterar timeouts ni checks. Los dos contenedores propios de
+HU22 fueron detenidos al cerrar las verificaciones, tras comprobar su etiqueta.
+
+DoD y Security Checklist revisados: retorno validado, datos públicos mínimos,
+sesión/roles existentes preservados, ausencia de POST automático, errores y cupos,
+interfaz/teclado y regresión real demostrados. No se añadieron paquetes ni se
+ejecutaron scripts de instalación. Se conservan como pendientes de entrega build
+manual, revisión humana/CI, subdominio/HTTPS/SPA reales y política de dependencias
+sin lockfile heredada. MSW avisa de versión de worker previa en demo; no se atribuye
+como regresión de HU-22 ni se regenera un archivo ajeno. No se declara aprobada
+la DoD de publicación por haber pasado las pruebas locales.
