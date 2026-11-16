@@ -19,9 +19,12 @@ export async function flujoInscripcionPublica(page: Page, administrador: Paramet
     await page.getByLabel('Fecha de inicio').fill('2031-02-01')
     await page.getByLabel('Fecha de fin').fill('2031-02-28')
     await page.getByLabel('Horas lectivas').fill('8')
-    await page.getByRole('combobox', { name: 'Modalidad de cobro', exact: true }).selectOption(costo === 0 ? 'GRATUITO' : 'PREVIO')
-    await page.getByLabel('Costo (S/)').fill(String(costo))
-    if (costo > 0) await page.getByLabel('Plazo para pagar (minutos)').fill('60')
+    const modalidadCobro = costo === 0 ? 'GRATUITO' : 'PREVIO'
+    await page.getByRole('combobox', { name: 'Modalidad de cobro', exact: true }).selectOption(modalidadCobro)
+    if (modalidadCobro === 'PREVIO') {
+      await page.getByLabel('Costo (S/)').fill(String(costo))
+      await page.getByLabel('Plazo para pagar (minutos)').fill('60')
+    }
     await page.getByLabel('Cupos').fill('1')
     await page.getByRole('button', { name: '+ Agregar módulo', exact: true }).click()
     await page.getByLabel('Nombre del módulo 1').fill('Contenido de prueba')
