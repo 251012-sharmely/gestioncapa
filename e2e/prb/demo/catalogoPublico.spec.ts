@@ -1,7 +1,8 @@
 import { expect, test } from '../../ayud/prueba'
 import { completarAcceso } from '../../ayud/sesion'
 import { cuentas } from '../../ayud/datos'
-import { flujoInscripcionPublica,flujoConstanciasPublicas } from '../../ayud/catalogoPublico'
+import { flujoInscripcionPublica } from '../../ayud/catalogoInscripcion'
+import { flujoConstanciasPublicas } from '../../ayud/catalogoConstancias'
 
 test('HU22-P4: encabezado anónimo permite consultar constancias con teclado y en móvil',async({page})=>{
   await flujoConstanciasPublicas(page)

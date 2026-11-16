@@ -1,7 +1,8 @@
 import { expect, test } from '../../ayud/prueba'
 import { completarAcceso,entrar } from '../../ayud/sesion'
 import { cuentas,cuentaReal } from '../../ayud/datos'
-import { flujoInscripcionPublica,flujoConstanciasPublicas } from '../../ayud/catalogoPublico'
+import { flujoInscripcionPublica } from '../../ayud/catalogoInscripcion'
+import { flujoConstanciasPublicas } from '../../ayud/catalogoConstancias'
 
 test('HU22-P4: consultar constancias funciona sin sesión con el verificador real',async({page})=>{
   await flujoConstanciasPublicas(page)
